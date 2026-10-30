@@ -14,6 +14,8 @@ from ..models.comment import Comment
 from ..models.content import ScheduledPost
 from ..settings import settings
 
+from ..models.autonomous import PostAnalyticsObservation
+
 router = APIRouter()
 
 
@@ -44,11 +46,7 @@ async def workspace_analytics(
     db: AsyncSession = Depends(deps.get_db),
     current_user: models.User = Depends(deps.get_current_user),
 ):
-    """Return aggregated metrics for the workspace.
-
-    Access is restricted to workspace owner/members.
-    In mock mode all counts are real DB counts; reach data is clearly labeled mock.
-    """
+    """Return aggregated metrics for the workspace with verified provenance."""
     ws_uuid = uuid.UUID(workspace_id)
     await _check_workspace_member(db, current_user, ws_uuid)
 
@@ -65,16 +63,38 @@ async def workspace_analytics(
     )
     comment_count = comment_result.scalar() or 0
 
+    target_provenance = "mock_simulation" if settings.USE_MOCK else "live_meta_api"
+    obs_res = await db.execute(
+        select(
+            func.sum(PostAnalyticsObservation.reach),
+            func.sum(PostAnalyticsObservation.impressions),
+            func.avg(PostAnalyticsObservation.engagement_rate),
+            func.count(PostAnalyticsObservation.id),
+        ).where(
+            PostAnalyticsObservation.workspace_id == ws_uuid,
+            PostAnalyticsObservation.data_provenance == target_provenance,
+        )
+    )
+    row = obs_res.first()
+    total_reach = row[0] if row and row[0] is not None else 0
+    total_impressions = row[1] if row and row[1] is not None else 0
+    avg_eng = row[2] if row and row[2] is not None else 0.0
+    obs_count = row[3] if row and row[3] is not None else 0
+
     return {
         "workspace_id": workspace_id,
         "mock_mode": settings.USE_MOCK,
+        "data_provenance": target_provenance,
         "scheduled_posts": scheduled_count,
         "total_comments": comment_count,
-        "estimated_reach": "[MOCK] 0" if settings.USE_MOCK else "N/A – real analytics require Meta Insights API",
+        "total_reach": total_reach,
+        "total_impressions": total_impressions,
+        "average_engagement_rate": round(float(avg_eng), 2),
+        "observations_count": obs_count,
+        "estimated_reach": f"[MOCK] {total_reach}" if settings.USE_MOCK else str(total_reach),
         "note": (
-            "[MOCK] Analytics are DB counts only. Real reach/impression data requires "
-            "Meta Graph API Insights with pages_read_engagement permission."
+            "[MOCK] Simulated analytics active. Live metrics will be fetched from Meta Graph API when credentials are provided."
             if settings.USE_MOCK
-            else "Real analytics from Meta Insights API not yet implemented."
+            else "Live metrics ingested via Meta Graph API v19.0+ with verified provenance."
         ),
     }

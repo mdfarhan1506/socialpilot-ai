@@ -30,17 +30,84 @@ class TestAutonomousEngine(unittest.TestCase):
     def test_media_validation(self):
         from backend.app.services.autonomous_engine import autonomous_engine
 
-        # Valid image URL
+        # Valid HTTPS image URL with recognized extension
         res_valid = autonomous_engine.validate_media("https://images.unsplash.com/photo-test.jpg")
         self.assertTrue(res_valid["valid"])
 
-        # Invalid URL scheme
-        res_invalid_scheme = autonomous_engine.validate_media("ftp://example.com/pic.png")
-        self.assertFalse(res_invalid_scheme["valid"])
+        # Invalid URL scheme (HTTP instead of HTTPS)
+        res_http = autonomous_engine.validate_media("http://images.unsplash.com/photo-test.jpg")
+        self.assertFalse(res_http["valid"])
+        self.assertIn("https://", res_http["reason"])
+
+        # Rejection of GIF format for Instagram feed
+        res_gif = autonomous_engine.validate_media("https://example.com/animation.gif")
+        self.assertFalse(res_gif["valid"])
+        self.assertIn("GIF", res_gif["reason"])
+
+        # Aspect ratio validation (4:5 = 0.80, 1:1 = 1.0, 1.91:1 = 1.91)
+        res_ar_valid = autonomous_engine.validate_media(
+            "https://images.unsplash.com/photo-test.jpg", aspect_ratio=1.0
+        )
+        self.assertTrue(res_ar_valid["valid"])
+
+        res_ar_invalid = autonomous_engine.validate_media(
+            "https://images.unsplash.com/photo-test.jpg", aspect_ratio=0.5
+        )
+        self.assertFalse(res_ar_invalid["valid"])
+        self.assertIn("aspect ratio", res_ar_invalid["reason"])
+
+        # Caption constraints (max 2200 chars, max 30 hashtags)
+        res_caption_valid = autonomous_engine.validate_media(
+            "https://images.unsplash.com/photo-test.jpg",
+            caption="Check out this post! #SocialMedia #Growth",
+        )
+        self.assertTrue(res_caption_valid["valid"])
+
+        long_caption = "A" * 2201
+        res_caption_long = autonomous_engine.validate_media(
+            "https://images.unsplash.com/photo-test.jpg", caption=long_caption
+        )
+        self.assertFalse(res_caption_long["valid"])
+        self.assertIn("2,200", res_caption_long["reason"])
+
+        too_many_tags = " ".join([f"#tag{i}" for i in range(35)])
+        res_tags = autonomous_engine.validate_media(
+            "https://images.unsplash.com/photo-test.jpg", caption=too_many_tags
+        )
+        self.assertFalse(res_tags["valid"])
+        self.assertIn("30", res_tags["reason"])
 
         # Empty URL
         res_empty = autonomous_engine.validate_media("")
         self.assertFalse(res_empty["valid"])
+
+    def test_grounded_content_generation(self):
+        import asyncio
+        from backend.app.services.autonomous_engine import autonomous_engine
+
+        async def _run():
+            res = await autonomous_engine.generate_platform_content(
+                niche="B2B SaaS",
+                audience="Product Managers",
+                tone="strategic and clear",
+                target_topic="Product-Led Growth",
+                recommended_hook="framework",
+                day_offset=1,
+            )
+            self.assertIn("concept", res)
+            self.assertIn("hook", res)
+            self.assertIn("script_or_body", res)
+            self.assertIn("call_to_action", res)
+            self.assertIn("caption", res)
+            self.assertIn("hashtags", res)
+            self.assertIn("is_ai_generated", res)
+            self.assertIn("source", res)
+
+            # Ensure no fake invented statistics in the grounded content
+            self.assertNotIn("82% of leaders", res["hook"])
+            self.assertNotIn("82% of leaders", res["caption"])
+
+        asyncio.run(_run())
 
     def test_quiet_hours_avoidance(self):
         from backend.app.services.autonomous_engine import autonomous_engine

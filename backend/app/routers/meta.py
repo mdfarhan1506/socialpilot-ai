@@ -43,6 +43,10 @@ async def meta_status(
     and whether the current user has linked an Instagram account."""
     linked = False
     ig_user_id = None
+    expires_at = None
+    days_left = None
+    token_expired = False
+
     result = await db.execute(
         select(MetaToken).where(MetaToken.user_id == current_user.id)
     )
@@ -50,13 +54,60 @@ async def meta_status(
     if token_row:
         linked = True
         ig_user_id = token_row.ig_user_id
+        expires_at = token_row.expires_at
+        if expires_at:
+            delta = expires_at - datetime.utcnow()
+            days_left = max(0, delta.days)
+            token_expired = delta.total_seconds() <= 0
 
     return {
         "mock_mode": settings.USE_MOCK,
         "meta_configured": bool(settings.META_APP_ID and settings.META_APP_SECRET),
         "account_linked": linked,
         "ig_user_id": ig_user_id,
+        "expires_at": expires_at,
+        "days_left": days_left,
+        "token_expired": token_expired,
         "redirect_uri": settings.META_OAUTH_REDIRECT_URI,
+    }
+
+
+@router.post("/token/refresh")
+async def refresh_token_endpoint(
+    current_user: models.User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """Refresh the user's stored long-lived Meta token before it expires."""
+    result = await db.execute(
+        select(MetaToken).where(MetaToken.user_id == current_user.id)
+    )
+    token_row = result.scalar_one_or_none()
+    if not token_row:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No linked Instagram account to refresh",
+        )
+
+    active_token = decrypt_token(token_row.encrypted_token)
+    try:
+        new_token_data = await meta_oauth.refresh_long_lived_token(active_token)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    new_access_token = new_token_data.get("access_token", active_token)
+    token_row.encrypted_token = encrypt_token(new_access_token)
+    expires_in = new_token_data.get("expires_in")
+    token_row.expires_at = (
+        datetime.utcnow() + timedelta(seconds=expires_in) if expires_in else None
+    )
+    token_row.updated_at = datetime.utcnow()
+    await db.commit()
+
+    return {
+        "status": "success",
+        "message": "Meta token refreshed successfully",
+        "expires_at": token_row.expires_at,
+        "mock_mode": settings.USE_MOCK,
     }
 
 

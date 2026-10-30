@@ -14,6 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.content import ScheduledPost, PublishedPost
 from ..models.autonomous import PostAnalyticsObservation, StrategyInsight, AutomationAuditLog
+from ..models.meta_token import MetaToken
+from ..utils.security import decrypt_token
+from .meta_insights import meta_insights
 from ..settings import settings
 
 
@@ -49,7 +52,7 @@ class LearningEngine:
 
             if is_mock or settings.USE_MOCK:
                 # Simulated observation based on hook type & post age
-                hook_factor = 1.4 if sched_post.hook and any(q in sched_post.hook.lower() for q in ["?", "%", "secret", "how"]) else 1.0
+                hook_factor = 1.4 if sched_post.hook and any(q in sched_post.hook.lower() for q in ["?", "%", "framework", "how"]) else 1.0
                 base_reach = int(120 * post_age_hours * hook_factor)
                 impressions = int(base_reach * 1.35)
                 likes = int(base_reach * 0.06)
@@ -58,35 +61,81 @@ class LearningEngine:
                 saves = int(base_reach * 0.015)
                 eng_rate = round(((likes + comments + shares + saves) / max(1, base_reach)) * 100, 2)
                 provenance = "mock_simulation"
-            else:
-                # In real mode, live metrics would be polled from Meta Insights API.
-                # If real metrics are not yet available for a newly published post, fallback to conservative zero
-                provenance = "live_meta_api"
-                impressions = 0
-                base_reach = 0
-                likes = 0
-                comments = 0
-                shares = 0
-                saves = 0
-                eng_rate = 0.0
 
-            obs = PostAnalyticsObservation(
-                workspace_id=workspace_id,
-                scheduled_post_id=sched_post.id,
-                platform_post_id=pub_post.platform_post_id,
-                post_age_hours=round(post_age_hours, 1),
-                impressions=impressions,
-                reach=base_reach,
-                likes=likes,
-                comments=comments,
-                shares=shares,
-                saves=saves,
-                engagement_rate=eng_rate,
-                data_provenance=provenance,
-                recorded_at=now,
-            )
-            db.add(obs)
-            observations.append(obs)
+                obs = PostAnalyticsObservation(
+                    workspace_id=workspace_id,
+                    scheduled_post_id=sched_post.id,
+                    platform_post_id=pub_post.platform_post_id,
+                    post_age_hours=round(post_age_hours, 1),
+                    impressions=impressions,
+                    reach=base_reach,
+                    likes=likes,
+                    comments=comments,
+                    shares=shares,
+                    saves=saves,
+                    engagement_rate=eng_rate,
+                    data_provenance=provenance,
+                    recorded_at=now,
+                )
+                db.add(obs)
+                observations.append(obs)
+            else:
+                # LIVE MODE: Fetch verified metrics from Meta Insights API
+                if not pub_post.platform_post_id:
+                    continue
+
+                token_res = await db.execute(
+                    select(MetaToken).where(MetaToken.user_id == sched_post.user_id)
+                )
+                token_row = token_res.scalar_one_or_none()
+                if not token_row:
+                    log.warning("No MetaToken found for user %s to fetch insights", sched_post.user_id)
+                    audit = AutomationAuditLog(
+                        workspace_id=workspace_id,
+                        action="insights_fetch",
+                        status="skipped",
+                        summary=f"Skipped insights for post {sched_post.id}: missing Meta token",
+                        details={"post_id": str(sched_post.id), "reason": "missing_token"},
+                        created_at=now,
+                    )
+                    db.add(audit)
+                    continue
+
+                access_token = decrypt_token(token_row.encrypted_token)
+                metrics_res = await meta_insights.fetch_media_metrics(
+                    platform_post_id=pub_post.platform_post_id,
+                    access_token=access_token,
+                )
+
+                if metrics_res.get("success") and not metrics_res.get("mock"):
+                    obs = PostAnalyticsObservation(
+                        workspace_id=workspace_id,
+                        scheduled_post_id=sched_post.id,
+                        platform_post_id=pub_post.platform_post_id,
+                        post_age_hours=round(post_age_hours, 1),
+                        impressions=metrics_res.get("impressions", 0),
+                        reach=metrics_res.get("reach", 0),
+                        likes=metrics_res.get("likes", 0),
+                        comments=metrics_res.get("comments", 0),
+                        shares=metrics_res.get("shares", 0),
+                        saves=metrics_res.get("saved", 0),
+                        engagement_rate=metrics_res.get("engagement_rate", 0.0),
+                        data_provenance="live_meta_api",
+                        recorded_at=now,
+                    )
+                    db.add(obs)
+                    observations.append(obs)
+                else:
+                    err_msg = metrics_res.get("error", "Insights unavailable or threshold not reached (<5 viewers)")
+                    audit = AutomationAuditLog(
+                        workspace_id=workspace_id,
+                        action="insights_fetch",
+                        status="unavailable",
+                        summary=f"Live insights unavailable for post {sched_post.id}: {err_msg}",
+                        details={"post_id": str(sched_post.id), "error": err_msg},
+                        created_at=now,
+                    )
+                    db.add(audit)
 
         await db.commit()
         return observations
@@ -97,7 +146,7 @@ class LearningEngine:
         workspace_id: uuid.UUID,
         is_mock: bool = True,
     ) -> List[StrategyInsight]:
-        """Aggregate observations, test hypotheses, and persist high-confidence recommendations.
+        """Aggregate observations, test hypotheses, and persist data-driven recommendations.
         
         Strict data provenance: If is_mock is False, only records with
         data_provenance == 'live_meta_api' are considered.
@@ -119,27 +168,61 @@ class LearningEngine:
         insights: List[StrategyInsight] = []
         now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-        # 1. Analyze hook types (Question vs Statistic vs Bold Statement vs How-To)
+        if not is_mock and not data:
+            # LIVE MODE with zero live observations yet
+            baseline_insight = StrategyInsight(
+                workspace_id=workspace_id,
+                topic="Audience Baseline Learning",
+                hook_type="framework",
+                format_type="single_image",
+                best_time_slot="14:00 UTC",
+                performance_score=0.0,
+                hypothesis="Awaiting real audience engagement data from Meta Insights API.",
+                recommendation="Maintain standard publishing cadence until initial live metrics are ingested.",
+                confidence_score=0.0,
+                is_mock=False,
+                evidence_data={"samples": 0, "status": "awaiting_live_data"},
+                created_at=now,
+            )
+            db.add(baseline_insight)
+            insights.append(baseline_insight)
+
+            audit = AutomationAuditLog(
+                workspace_id=workspace_id,
+                action="strategy_update",
+                status="neutral",
+                summary="Strategy engine awaiting live Meta Insights data (0 observations)",
+                details={"observations_analyzed": 0, "is_mock": False},
+                created_at=now,
+            )
+            db.add(audit)
+            await db.commit()
+            return insights
+
+        # 1. Analyze hook types (Question vs Framework vs Actionable vs Contrarian vs Statistic)
         hook_metrics: Dict[str, List[float]] = {
             "question": [],
+            "framework": [],
+            "actionable": [],
+            "contrarian": [],
             "statistic": [],
-            "how_to": [],
-            "bold_statement": [],
         }
 
         for obs, post in data:
             h = (post.hook or "").lower()
             if "?" in h:
                 hook_metrics["question"].append(obs.engagement_rate)
-            elif any(c in h for c in ["%", "$", "1", "2", "3", "5", "10"]):
-                hook_metrics["statistic"].append(obs.engagement_rate)
-            elif "how to" in h or "guide" in h:
-                hook_metrics["how_to"].append(obs.engagement_rate)
+            elif "framework" in h or "pillar" in h:
+                hook_metrics["framework"].append(obs.engagement_rate)
+            elif "how" in h or "action" in h or "step" in h:
+                hook_metrics["actionable"].append(obs.engagement_rate)
+            elif "why" in h or "stop" in h or "costing" in h or "myth" in h:
+                hook_metrics["contrarian"].append(obs.engagement_rate)
             else:
-                hook_metrics["bold_statement"].append(obs.engagement_rate)
+                hook_metrics["statistic"].append(obs.engagement_rate)
 
-        # Generate hook insight
-        best_hook = "statistic"
+        # Generate hook insight from data
+        best_hook = "framework"
         best_avg = 0.0
         for h_type, rates in hook_metrics.items():
             avg = sum(rates) / len(rates) if rates else 0.0
@@ -147,17 +230,23 @@ class LearningEngine:
                 best_avg = avg
                 best_hook = h_type
 
-        # If data exists or mock defaults
+        # Formulate data-driven frequency recommendation
+        frequency_note = ""
+        if best_avg >= 4.0:
+            frequency_note = " Audience engagement is robust (>4.0%); maintain or adapt daily frequency toward upper limit."
+        elif best_avg > 0.0 and best_avg < 2.0:
+            frequency_note = " Engagement is developing (<2.0%); test alternative hook formats before increasing publishing frequency."
+
         hook_insight = StrategyInsight(
             workspace_id=workspace_id,
             topic="Hook Performance Optimization",
             hook_type=best_hook,
             format_type="single_image",
             best_time_slot="14:00-16:00 UTC",
-            performance_score=best_avg or 5.2,
+            performance_score=best_avg or (5.2 if is_mock else 0.0),
             hypothesis=f"Posts utilizing '{best_hook}' hooks produce higher audience engagement rates.",
-            recommendation=f"Prioritize '{best_hook}' openers for upcoming rolling plan drafts.",
-            confidence_score=0.85 if len(data) > 5 else 0.60,
+            recommendation=f"Prioritize '{best_hook}' openers for upcoming rolling plan drafts.{frequency_note}",
+            confidence_score=0.85 if len(data) > 5 else (0.60 if is_mock else 0.40),
             is_mock=is_mock,
             evidence_data={"samples": len(data), "avg_engagement": best_avg},
             created_at=now,
@@ -172,12 +261,12 @@ class LearningEngine:
             hook_type=best_hook,
             format_type="carousel",
             best_time_slot="13:00-15:00 UTC",
-            performance_score=best_avg * 1.15 if best_avg else 5.8,
+            performance_score=(best_avg * 1.15) if best_avg else (5.8 if is_mock else 0.0),
             hypothesis="Mid-day publishing slots outside quiet hours yield higher initial impressions.",
             recommendation="Schedule high-priority announcements between 13:00 and 15:00 UTC.",
-            confidence_score=0.75,
+            confidence_score=0.75 if len(data) > 5 else (0.50 if is_mock else 0.35),
             is_mock=is_mock,
-            evidence_data={"recommended_window_utc": "13:00-15:00"},
+            evidence_data={"recommended_window_utc": "13:00-15:00", "samples": len(data)},
             created_at=now,
         )
         db.add(timing_insight)
@@ -188,12 +277,13 @@ class LearningEngine:
             workspace_id=workspace_id,
             action="strategy_update",
             status="success",
-            summary=f"Strategy engine formulated {len(insights)} learning recommendations (is_mock={is_mock})",
+            summary=f"Strategy engine formulated {len(insights)} learning recommendations (is_mock={is_mock}, samples={len(data)})",
             details={
                 "best_hook": best_hook,
                 "best_time_slot": "13:00-15:00 UTC",
                 "observations_analyzed": len(data),
                 "is_mock": is_mock,
+                "avg_engagement": best_avg,
             },
             created_at=now,
         )

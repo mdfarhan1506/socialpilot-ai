@@ -25,6 +25,27 @@ from ..settings import settings
 GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
 
+def _parse_meta_error(resp_text: str, default_msg: str) -> str:
+    """Extract actionable error diagnostics from a Meta Graph API error response."""
+    try:
+        import json
+        err_json = json.loads(resp_text)
+        err = err_json.get("error", {})
+        code = err.get("code")
+        msg = err.get("message", default_msg)
+        if code == 190:
+            return f"Meta authentication failed (code 190): Access token is invalid or expired. Re-authorization required."
+        elif code in (36003, 36004):
+            return f"Instagram aspect ratio error (code {code}): Image aspect ratio must be between 4:5 (0.80) and 1.91:1."
+        elif code == 2207001 or "could not be fetched" in msg.lower():
+            return f"Instagram media download error: Meta was unable to fetch the image URL. Ensure it is a publicly accessible HTTPS image."
+        elif code in (10, 100):
+            return f"Meta permission error (code {code}): {msg}. Verify the account has 'instagram_content_publish' granted."
+        return f"{default_msg}: {msg}"
+    except Exception:
+        return f"{default_msg}: {resp_text}"
+
+
 async def publish_image(
     ig_user_id: str,
     access_token: str,
@@ -56,10 +77,10 @@ async def publish_image(
             },
         )
         if create_resp.status_code != 200:
-            raise RuntimeError(f"Media container creation failed: {create_resp.text}")
+            raise RuntimeError(_parse_meta_error(create_resp.text, "Media container creation failed"))
         creation_id: str = create_resp.json().get("id")
         if not creation_id:
-            raise RuntimeError("No container ID in Meta response")
+            raise RuntimeError("No container ID returned in Meta response")
 
         # Step 2 – poll until FINISHED (max 30 s)
         for _ in range(10):
@@ -71,7 +92,7 @@ async def publish_image(
             if code == "FINISHED":
                 break
             if code == "ERROR":
-                raise RuntimeError("Media container processing failed")
+                raise RuntimeError("Media container processing failed on Meta's servers (invalid image encoding or dimensions)")
             await asyncio.sleep(3)
         else:
             raise RuntimeError("Media container timed out before FINISHED state")
@@ -82,7 +103,7 @@ async def publish_image(
             data={"creation_id": creation_id, "access_token": access_token},
         )
         if pub_resp.status_code != 200:
-            raise RuntimeError(f"Media publish failed: {pub_resp.text}")
+            raise RuntimeError(_parse_meta_error(pub_resp.text, "Media publish failed"))
         publish_id = pub_resp.json().get("id")
         return {
             "creation_id": creation_id,

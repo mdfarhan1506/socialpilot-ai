@@ -28,6 +28,7 @@ worker = Celery(
 )
 
 worker.conf.update(
+    broker_connection_retry_on_startup=True,
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
@@ -142,7 +143,7 @@ async def _publish_due_posts_async() -> None:
     from .db import AsyncSessionLocal
     from .models.content import ScheduledPost, PublishedPost
     from .models.meta_token import MetaToken
-    from .models.autonomous import AutonomousConfig
+    from .models.autonomous import AutonomousConfig, AutomationAuditLog
     from .services import meta_publisher
     from .utils.security import decrypt_token
     from .settings import settings
@@ -240,6 +241,22 @@ async def _publish_due_posts_async() -> None:
                 error_message=pub_error,
             )
             db.add(published)
+
+            if post.workspace_id:
+                audit = AutomationAuditLog(
+                    workspace_id=post.workspace_id,
+                    action="publish",
+                    status=pub_status,
+                    summary=f"Post {post.id} publish status: {pub_status}" if not pub_error else f"Post {post.id} publish failed: {pub_error}",
+                    details={
+                        "post_id": str(post.id),
+                        "platform_post_id": platform_post_id,
+                        "error": pub_error,
+                        "is_mock": settings.USE_MOCK,
+                    },
+                    created_at=datetime.utcnow(),
+                )
+                db.add(audit)
 
         await db.commit()
         log.info("Processed %d due post(s)", len(due_posts))

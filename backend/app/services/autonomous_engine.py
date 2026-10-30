@@ -53,22 +53,58 @@ class AutonomousEngine:
             await db.refresh(cfg)
         return cfg
 
-    def validate_media(self, image_url: Optional[str]) -> Dict[str, Any]:
-        """Validate media URL structure, format, and availability."""
+    def validate_media(
+        self,
+        image_url: Optional[str],
+        caption: Optional[str] = None,
+        aspect_ratio: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Validate media URL structure, format, aspect ratio, and Instagram publishing specs.
+        
+        Instagram specs:
+        - Must be public HTTPS URL.
+        - Supported formats: JPG, JPEG, PNG, WebP (GIF is not supported for feed posts).
+        - Aspect ratio must be between 4:5 (0.80) and 1.91:1 (1.91).
+        - Caption must not exceed 2,200 characters.
+        - Hashtags must not exceed 30.
+        """
         if not image_url:
             return {"valid": False, "reason": "Missing media URL"}
 
         url = image_url.strip()
-        if not (url.startswith("http://") or url.startswith("https://")):
-            return {"valid": False, "reason": "URL must begin with http:// or https://"}
+        if not url.startswith("https://"):
+            return {
+                "valid": False,
+                "reason": "URL must begin with https:// (Instagram requires secure public HTTPS URLs)",
+            }
 
         # Check for valid image extensions or recognized media hosting path
-        valid_extensions = [".jpg", ".jpeg", ".png", ".webp", ".gif"]
-        has_ext = any(url.lower().endswith(ext) or ext in url.lower() for ext in valid_extensions)
-        is_known_host = any(h in url.lower() for h in ["images.unsplash.com", "via.placeholder.com", "minio", "s3.amazonaws.com", "cdn"])
+        valid_extensions = [".jpg", ".jpeg", ".png", ".webp"]
+        url_lower = url.lower()
+        if ".gif" in url_lower:
+            return {"valid": False, "reason": "GIF format is not supported for Instagram feed posts. Use JPG or PNG."}
+
+        has_ext = any(url_lower.endswith(ext) or (ext + "?") in url_lower for ext in valid_extensions)
+        is_known_host = any(h in url_lower for h in ["images.unsplash.com", "via.placeholder.com", "minio", "s3.amazonaws.com", "cdn"])
 
         if not (has_ext or is_known_host):
-            return {"valid": False, "reason": "Unsupported media format. Expected JPG, PNG, or WebP"}
+            return {"valid": False, "reason": "Unsupported media format. Expected JPG, JPEG, PNG, or WebP"}
+
+        # Aspect ratio check if provided
+        if aspect_ratio is not None:
+            if aspect_ratio < 0.79 or aspect_ratio > 1.92:
+                return {
+                    "valid": False,
+                    "reason": f"Invalid aspect ratio ({aspect_ratio:.2f}). Instagram requires between 4:5 (0.80) and 1.91:1 (1.91).",
+                }
+
+        # Caption constraints check
+        if caption:
+            if len(caption) > 2200:
+                return {"valid": False, "reason": "Caption exceeds Instagram limit of 2,200 characters"}
+            hashtag_count = len(re.findall(r"#\w+", caption))
+            if hashtag_count > 30:
+                return {"valid": False, "reason": f"Hashtag count ({hashtag_count}) exceeds Instagram limit of 30"}
 
         return {"valid": True, "url": url, "format": "image"}
 
@@ -117,6 +153,120 @@ class AutonomousEngine:
             "passed": len(flagged) == 0,
             "flagged_terms": flagged,
             "requires_approval": len(flagged) > 0,
+        }
+
+    async def generate_platform_content(
+        self,
+        niche: str,
+        audience: str,
+        tone: str,
+        target_topic: str,
+        recommended_hook: str,
+        day_offset: int,
+    ) -> Dict[str, Any]:
+        """Generate platform-ready post content using OpenAI when available, or a grounded fallback template.
+        
+        CRITICAL RULES:
+        1. Never invent fake statistics or unverified percentage claims.
+        2. Ground insights in established principles, actionable frameworks, or observational questions.
+        3. Clearly identify whether the content was AI-generated or produced by a fallback template.
+        """
+        is_ai_generated = False
+        source = "fallback_template" if not settings.USE_MOCK else "mock_simulation"
+
+        if not settings.USE_MOCK and settings.OPENAI_API_KEY:
+            try:
+                ai_provider = get_ai_provider()
+                prompt = (
+                    f"You are an expert social media creator and strategist for Instagram.\n"
+                    f"Create an authentic, high-value, niche-specific Instagram post for a brand in the '{niche}' niche.\n"
+                    f"Target audience: {audience}.\n"
+                    f"Brand voice and tone: {tone}.\n"
+                    f"Primary topic: {target_topic}.\n"
+                    f"Hook format to utilize: {recommended_hook} (e.g. question, framework, observation, or step-by-step insight).\n\n"
+                    f"CRITICAL COMPLIANCE RULES:\n"
+                    f"1. Do NOT invent statistics, fake percentages, or present unverified survey numbers as facts.\n"
+                    f"2. Ground insights in proven principles, actionable steps, or thought-provoking questions.\n"
+                    f"3. Keep the body concise and formatted with line breaks for Instagram readability.\n"
+                    f"4. Include a clear call-to-action (CTA) encouraging comments, saves, or shares.\n"
+                    f"5. Include 4-7 relevant hashtags (under 30 total).\n"
+                    f"6. Total caption must be under 2,200 characters.\n\n"
+                    f"Return ONLY a JSON object with exactly these keys:\n"
+                    f"{{\n"
+                    f'  "concept": "A 3-6 word theme for this post",\n'
+                    f'  "hook": "The compelling opening line",\n'
+                    f'  "script_or_body": "The core educational or inspirational body text",\n'
+                    f'  "call_to_action": "The closing CTA",\n'
+                    f'  "hashtags": "#Tag1 #Tag2 #Tag3",\n'
+                    f'  "caption": "The complete combined caption ready to publish"\n'
+                    f"}}"
+                )
+                ai_res = await ai_provider.generate(prompt)
+                parsed: Optional[Dict[str, Any]] = None
+                if isinstance(ai_res, dict):
+                    if "ideas" in ai_res and isinstance(ai_res["ideas"], list) and ai_res["ideas"]:
+                        first = ai_res["ideas"][0]
+                        if isinstance(first, dict):
+                            parsed = first
+                    elif "caption" in ai_res:
+                        parsed = ai_res
+
+                if parsed and parsed.get("caption"):
+                    concept = parsed.get("concept") or parsed.get("title") or f"{niche} Strategy: Day {day_offset}"
+                    hook = parsed.get("hook") or parsed.get("caption", "").split("\n")[0]
+                    script_body = parsed.get("script_or_body") or parsed.get("description") or parsed.get("caption")
+                    cta = parsed.get("call_to_action") or "Save this post and drop your perspective below!"
+                    hashtags = parsed.get("hashtags") or f"#{niche.replace(' ', '')} #Strategy #Growth"
+                    caption = parsed.get("caption")
+                    if not caption:
+                        caption = f"{hook}\n\n{script_body}\n\n{cta}\n\n{hashtags}"
+
+                    return {
+                        "concept": concept,
+                        "hook": hook,
+                        "script_or_body": script_body,
+                        "call_to_action": cta,
+                        "hashtags": hashtags,
+                        "caption": caption,
+                        "is_ai_generated": True,
+                        "source": "openai",
+                    }
+            except Exception as e:
+                log.warning("AI content generation failed, falling back to grounded template: %s", e)
+
+        # Grounded Fallback Template (NO fake statistics!)
+        concept = f"{niche} Framework: Day {day_offset}"
+        if recommended_hook == "question":
+            hook = f"What is the single biggest operational bottleneck holding your {niche} brand back?"
+        elif recommended_hook == "framework":
+            hook = f"The 3 core pillars behind high-performing {niche} systems:"
+        elif recommended_hook == "actionable":
+            hook = f"How top operators in {niche} structure their daily workflow for maximum leverage:"
+        elif recommended_hook == "contrarian":
+            hook = f"Why relying on disconnected manual routines is slowing your {niche} momentum:"
+        else:
+            hook = f"Building a scalable {niche} architecture in 2026 starts with clear systems:"
+
+        script_body = (
+            f"Here is the proven 3-phase execution model:\n"
+            f"1. Continuous research and trend detection\n"
+            f"2. Consistent value-driven content distribution\n"
+            f"3. Objective performance analysis and iteration."
+        )
+        cta = "Save this framework for your team and share your thoughts in the comments!"
+        clean_tag = re.sub(r'[^a-zA-Z0-9]', '', niche)
+        hashtags = f"#{clean_tag} #Operations #Strategy #CreatorEconomy #Automation"
+        full_caption = f"{hook}\n\n{script_body}\n\n{cta}\n\n{hashtags}"
+
+        return {
+            "concept": concept,
+            "hook": hook,
+            "script_or_body": script_body,
+            "call_to_action": cta,
+            "hashtags": hashtags,
+            "caption": full_caption,
+            "is_ai_generated": is_ai_generated,
+            "source": source,
         }
 
     async def run_autonomous_cycle(
@@ -225,29 +375,27 @@ class AutonomousEngine:
                     end_quiet=cfg.quiet_hours_end,
                 )
 
-                # Synthesize complete platform-ready content
-                concept = f"{niche} Strategy Breakdown: Day {day_offset}"
-                if recommended_hook == "statistic":
-                    hook = f"82% of leaders in {niche} attribute their growth to automated workflows."
-                elif recommended_hook == "question":
-                    hook = f"What is the single biggest bottleneck holding your {niche} brand back?"
-                elif recommended_hook == "how_to":
-                    hook = f"How to scale your {niche} strategy in 15 minutes a day."
-                else:
-                    hook = f"Stop relying on manual posting for {niche} in 2026."
-
-                script_body = (
-                    f"Here is the proven framework:\n"
-                    f"1. Continuous trend research\n"
-                    f"2. Automated hook-tested creation\n"
-                    f"3. Closed-loop performance iteration."
+                # Synthesize complete platform-ready content via AI or grounded fallback
+                target_topic = (cfg.target_topics or ["Industry Trends"])[count % len(cfg.target_topics or ["Industry Trends"])]
+                content_payload = await self.generate_platform_content(
+                    niche=niche,
+                    audience=audience,
+                    tone=tone,
+                    target_topic=target_topic,
+                    recommended_hook=recommended_hook,
+                    day_offset=day_offset,
                 )
-                cta = "Save this post and drop your thoughts in the comments!"
-                hashtags = f"#{niche.replace(' ', '')} #SocialMediaStrategy #GrowthHacking #AIAutomation"
-                full_caption = f"{hook}\n\n{script_body}\n\n{cta}\n\n{hashtags}"
+                concept = content_payload["concept"]
+                hook = content_payload["hook"]
+                script_body = content_payload["script_or_body"]
+                cta = content_payload["call_to_action"]
+                hashtags = content_payload["hashtags"]
+                full_caption = content_payload["caption"]
+                is_ai_generated = content_payload["is_ai_generated"]
+                content_source = content_payload["source"]
 
                 media_url = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80"
-                media_validation = self.validate_media(media_url)
+                media_validation = self.validate_media(media_url, caption=full_caption)
 
                 # Content policy screening
                 screening = self.screen_content_policy(full_caption, cfg.restricted_keywords)
@@ -282,18 +430,21 @@ class AutonomousEngine:
                     db.add(post)
                     new_posts.append(post)
 
-                    # Audit log creation
+                    # Audit log creation with content provenance
                     audit = AutomationAuditLog(
                         workspace_id=workspace_id,
                         action="plan_generation",
                         status="success" if not requires_approval else "pending_review",
-                        summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status})",
+                        summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status}, source={content_source})",
                         details={
                             "concept": concept,
                             "hook_type": recommended_hook,
                             "requires_approval": requires_approval,
                             "flagged_terms": screening.get("flagged_terms", []),
                             "scheduled_time": slot_time.isoformat(),
+                            "is_ai_generated": is_ai_generated,
+                            "source": content_source,
+                            "media_valid": media_validation["valid"],
                         },
                         created_at=now,
                     )
