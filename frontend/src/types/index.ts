@@ -28,8 +28,14 @@ export interface ScheduledPost {
   id: string;
   caption: string;
   image_url?: string | null;
+  concept?: string | null;
+  hook?: string | null;
+  script_or_body?: string | null;
+  call_to_action?: string | null;
+  requires_approval?: boolean;
+  approved_at?: string | null;
   scheduled_time: string;
-  status: 'scheduled' | 'published' | 'cancelled' | 'failed';
+  status: 'scheduled' | 'published' | 'cancelled' | 'failed' | 'pending_approval';
   created_at: string;
 }
 
@@ -70,4 +76,54 @@ export interface ContentIdea {
   title: string;
   caption: string;
   hashtags?: string[];
+}
+
+export interface AutonomousConfig {
+  id: string;
+  workspace_id: string;
+  is_active: boolean;
+  approval_mode: string;
+  min_posts_per_day: number;
+  max_posts_per_day: number;
+  quiet_hours_start: number;
+  quiet_hours_end: number;
+  restricted_keywords: string[];
+  target_topics: string[];
+}
+
+export interface StrategyInsight {
+  id: string;
+  topic: string;
+  hook_type?: string | null;
+  format_type?: string | null;
+  best_time_slot?: string | null;
+  performance_score: number;
+  hypothesis: string;
+  recommendation: string;
+  confidence_score: number;
+  is_mock: boolean;
+  created_at?: string | null;
+}
+
+export interface AutomationAuditLog {
+  id: string;
+  action: string;
+  status: string;
+  summary: string;
+  details?: any;
+  created_at: string;
+}
+
+export interface AutonomousPlanPost {
+  id: string;
+  concept?: string | null;
+  hook?: string | null;
+  script_or_body?: string | null;
+  call_to_action?: string | null;
+  caption: string;
+  image_url?: string | null;
+  scheduled_time: string;
+  status: string;
+  requires_approval: boolean;
+  approved_at?: string | null;
 }

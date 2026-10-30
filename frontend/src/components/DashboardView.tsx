@@ -138,12 +138,22 @@ export default function DashboardView({
           marginBottom: '2rem',
         }}
       >
+        <div className="card" style={{ border: '1px solid var(--accent-primary)', background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(168, 85, 247, 0.08))' }}>
+          <h3 className="card-title">🤖 Autonomous Creator</h3>
+          <p className="card-subtitle">
+            Persistent orchestration: rolling plans, hook synthesis, policy screening, and adaptive publishing.
+          </p>
+          <button className="btn btn-primary" onClick={() => onNavigate('autonomous')}>
+            Manage Autonomous Creator &rarr;
+          </button>
+        </div>
+
         <div className="card">
           <h3 className="card-title">✨ Content Studio</h3>
           <p className="card-subtitle">
             Generate viral captions, select hashtags, and draft multi-platform posts using AI prompts.
           </p>
-          <button className="btn btn-primary" onClick={() => onNavigate('studio')}>
+          <button className="btn btn-secondary" onClick={() => onNavigate('studio')}>
             Open Content Studio &rarr;
           </button>
         </div>

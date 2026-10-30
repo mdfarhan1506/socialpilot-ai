@@ -18,6 +18,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'autonomous', label: 'Autonomous Creator', icon: '🤖' },
     { id: 'studio', label: 'Content Studio', icon: '✨' },
     { id: 'calendar', label: 'Content Calendar', icon: '📅' },
     { id: 'brands', label: 'Brand Profiles', icon: '🎨' },

@@ -21,6 +21,7 @@ import BrandProfilesView from '../components/BrandProfilesView';
 import SocialAccountsView from '../components/SocialAccountsView';
 import CommentsView from '../components/CommentsView';
 import AnalyticsView from '../components/AnalyticsView';
+import AutonomousCreatorView from '../components/AutonomousCreatorView';
 
 interface Toast {
   id: string;
@@ -303,6 +304,15 @@ export default function Home() {
               config={config}
               onNavigate={setCurrentTab}
               onCancelPost={handleCancelPost}
+            />
+          )}
+
+          {currentTab === 'autonomous' && (
+            <AutonomousCreatorView
+              workspace={currentWorkspace}
+              config={config}
+              metaStatus={metaStatus}
+              onToast={addToast}
             />
           )}
 

@@ -15,3 +15,9 @@ from .content import (
     ScheduledPost,
     PublishedPost,
 )
+from .autonomous import (
+    AutonomousConfig,
+    StrategyInsight,
+    PostAnalyticsObservation,
+    AutomationAuditLog,
+)

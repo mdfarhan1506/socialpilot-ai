@@ -56,8 +56,15 @@ class ScheduledPost(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     caption = Column(Text, nullable=True)
     image_url = Column(String, nullable=True)
+    # Autonomous creator structured attributes
+    concept = Column(String, nullable=True)
+    hook = Column(Text, nullable=True)
+    script_or_body = Column(Text, nullable=True)
+    call_to_action = Column(String, nullable=True)
+    requires_approval = Column(Boolean, default=False, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
     scheduled_time = Column(DateTime, nullable=False)
-    status = Column(String, default="scheduled")  # scheduled, published, failed, cancelled
+    status = Column(String, default="scheduled")  # scheduled, published, failed, cancelled, pending_approval
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

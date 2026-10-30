@@ -8,6 +8,10 @@ import {
   AppConfig,
   MetaStatus,
   ContentIdea,
+  AutonomousConfig,
+  StrategyInsight,
+  AutomationAuditLog,
+  AutonomousPlanPost,
 } from '../types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -267,5 +271,80 @@ export const api = {
       headers: { ...getAuthHeader() },
     });
     return handleResponse<AnalyticsData>(res);
+  },
+
+  // Autonomous Creator
+  async getAutonomousConfig(workspaceId: string): Promise<AutonomousConfig> {
+    const res = await fetch(`${API_BASE}/autonomous/config?workspace_id=${workspaceId}`, {
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<AutonomousConfig>(res);
+  },
+
+  async updateAutonomousConfig(
+    data: Partial<AutonomousConfig> & { workspace_id: string }
+  ): Promise<{ status: string; is_active: boolean }> {
+    const res = await fetch(`${API_BASE}/autonomous/config`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<{ status: string; is_active: boolean }>(res);
+  },
+
+  async pauseAutonomous(workspaceId: string): Promise<{ status: string; is_active: boolean }> {
+    const res = await fetch(`${API_BASE}/autonomous/pause?workspace_id=${workspaceId}`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<{ status: string; is_active: boolean }>(res);
+  },
+
+  async resumeAutonomous(workspaceId: string): Promise<{ status: string; is_active: boolean }> {
+    const res = await fetch(`${API_BASE}/autonomous/resume?workspace_id=${workspaceId}`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<{ status: string; is_active: boolean }>(res);
+  },
+
+  async runAutonomousCycle(workspaceId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/autonomous/run-cycle?workspace_id=${workspaceId}`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getAutonomousInsights(workspaceId: string): Promise<StrategyInsight[]> {
+    const res = await fetch(`${API_BASE}/autonomous/insights?workspace_id=${workspaceId}`, {
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<StrategyInsight[]>(res);
+  },
+
+  async getAutonomousAuditLogs(workspaceId: string): Promise<AutomationAuditLog[]> {
+    const res = await fetch(`${API_BASE}/autonomous/audit-logs?workspace_id=${workspaceId}`, {
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<AutomationAuditLog[]>(res);
+  },
+
+  async getAutonomousPlan(workspaceId: string): Promise<AutonomousPlanPost[]> {
+    const res = await fetch(`${API_BASE}/autonomous/plan?workspace_id=${workspaceId}`, {
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<AutonomousPlanPost[]>(res);
+  },
+
+  async approvePost(postId: string): Promise<{ status: string; post_id: string }> {
+    const res = await fetch(`${API_BASE}/autonomous/posts/${postId}/approve`, {
+      method: 'POST',
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<{ status: string; post_id: string }>(res);
   },
 };

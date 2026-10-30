@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from .routers import auth, workspace, brand, content, meta, scheduling, comments, analytics
+from .routers import auth, workspace, brand, content, meta, scheduling, comments, analytics, autonomous
 from .settings import settings
 from .db import engine
 from .models.base import Base
@@ -25,6 +25,7 @@ app.include_router(meta.router, prefix="/meta", tags=["meta"])
 app.include_router(scheduling.router, prefix="/schedule", tags=["scheduling"])
 app.include_router(comments.router, prefix="/comments", tags=["comments"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+app.include_router(autonomous.router, prefix="/autonomous", tags=["autonomous"])
 
 
 @app.on_event("startup")
