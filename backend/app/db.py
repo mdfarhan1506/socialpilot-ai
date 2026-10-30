@@ -4,7 +4,16 @@ from sqlalchemy.orm import sessionmaker
 from .settings import settings
 
 # Create async engine using configured DATABASE_URL
-engine = create_async_engine(settings.DATABASE_URL, echo=getattr(settings, "DEBUG", False), future=True)
+connect_args = {}
+if settings.DATABASE_URL.startswith("sqlite"):
+    connect_args = {"timeout": 30.0}
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=getattr(settings, "DEBUG", False),
+    future=True,
+    connect_args=connect_args,
+)
 
 # Ensure a fresh SQLite file for test databases (avoid wiping prod dev.db)
 if settings.DATABASE_URL.startswith("sqlite+aiosqlite://"):

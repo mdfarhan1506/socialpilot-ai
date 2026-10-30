@@ -192,8 +192,9 @@ async def _publish_due_posts_async() -> None:
             pub_error = None
             platform_post_id = None
 
+            is_instagram_mock = settings.MOCK_INSTAGRAM or not (settings.META_APP_ID and settings.META_APP_SECRET)
             token_row = None
-            if not settings.USE_MOCK:
+            if not is_instagram_mock:
                 token_res = await db.execute(
                     select(MetaToken).where(MetaToken.user_id == post.user_id)
                 )
@@ -209,7 +210,7 @@ async def _publish_due_posts_async() -> None:
                     access_token = decrypt_token(token_row.encrypted_token)
                     ig_user_id = token_row.ig_user_id
             else:
-                if settings.USE_MOCK:
+                if is_instagram_mock:
                     access_token = "MOCK_TOKEN"
                     ig_user_id = "MOCK_IG_USER_ID"
 

@@ -37,12 +37,15 @@ env/
 
 # Databases
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 
-# Logs
+# Logs & runtime
 logs/
 *.log
+celerybeat-schedule*
 
 # Operating System Files
 .DS_Store

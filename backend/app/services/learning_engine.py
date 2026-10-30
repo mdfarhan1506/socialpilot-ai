@@ -3,11 +3,12 @@
 Analyzes post observations, tracks hook & topic efficacy, and produces strategy hypotheses.
 STRICT PROVENANCE RULE: Mock metrics are never used to train live strategy models.
 """
-from __future__ import annotations
-
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
+
+log = logging.getLogger(__name__)
 
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
