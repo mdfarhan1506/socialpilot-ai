@@ -6,9 +6,13 @@ from sqlalchemy import select
 from .. import schemas
 from ..utils import security
 from ..models.user import User
-from ..deps import get_db
+from ..deps import get_db, get_current_user
 
 router = APIRouter()
+
+@router.get("/me")
+async def get_me(current_user: User = Depends(get_current_user)):
+    return {"id": str(current_user.id), "email": current_user.email}
 
 @router.post("/register", response_model=schemas.auth.Token)
 async def register(user: schemas.auth.UserCreate, db: AsyncSession = Depends(get_db)):
