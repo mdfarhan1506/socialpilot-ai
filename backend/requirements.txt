@@ -1,0 +1,16 @@
+fastapi[all]
+uvicorn[standard]
+SQLAlchemy[asyncio]>=2.0
+asyncpg
+alembic
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
+redis
+celery[redis]
+httpx
+python-dotenv
+python-multipart
+aiosqlite
+pytest
+openai
