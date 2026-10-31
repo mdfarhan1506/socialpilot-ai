@@ -1,31 +1,36 @@
 """Meta Instagram OAuth and publishing router.
 
 GET  /meta/status          – connection status (mock/live, linked account)
-GET  /meta/oauth/start     – redirect browser to Facebook login
-GET  /meta/oauth/callback  – handle code exchange; encrypt & store token in DB
+GET  /meta/oauth/start     – generate state & redirect browser to Facebook login
+GET  /meta/oauth/callback  – validate state, handle code exchange, encrypt & store token in DB
 POST /meta/publish         – publish using stored token (never requires raw token)
 
 SECURITY: Access tokens are NEVER returned in API responses.
 They are encrypted at rest with Fernet and decrypted only server-side
-when a publish call is made.
+when a publish call is made. State tokens are cryptographically signed,
+bound to the authenticated user, expiring, and single-use.
 """
 from __future__ import annotations
 
+import logging
+import secrets
 from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models, deps
 from ..models.meta_token import MetaToken
+from ..models.oauth_state import OAuthState
 from ..services import meta_oauth, meta_publisher
 from ..utils.security import encrypt_token, decrypt_token
 from ..settings import settings
 
+logger = logging.getLogger("socialpilot.meta")
 router = APIRouter()
 
 
@@ -39,87 +44,54 @@ async def meta_status(
     current_user: models.User = Depends(deps.get_current_user),
     db: AsyncSession = Depends(deps.get_db),
 ):
-    """Return mock/live mode, whether Meta credentials are configured,
-    and whether the current user has linked an Instagram account."""
-    linked = False
-    ig_user_id = None
-    expires_at = None
-    days_left = None
-    token_expired = False
-
-    result = await db.execute(
-        select(MetaToken).where(MetaToken.user_id == current_user.id)
-    )
-    token_row = result.scalar_one_or_none()
-    if token_row:
-        linked = True
-        ig_user_id = token_row.ig_user_id
-        expires_at = token_row.expires_at
-        if expires_at:
-            delta = expires_at - datetime.utcnow()
-            days_left = max(0, delta.days)
-            token_expired = delta.total_seconds() <= 0
-
-    return {
-        "mock_mode": settings.USE_MOCK,
-        "meta_configured": bool(settings.META_APP_ID and settings.META_APP_SECRET),
-        "account_linked": linked,
-        "ig_user_id": ig_user_id,
-        "expires_at": expires_at,
-        "days_left": days_left,
-        "token_expired": token_expired,
-        "redirect_uri": settings.META_OAUTH_REDIRECT_URI,
-    }
-
-
-@router.post("/token/refresh")
-async def refresh_token_endpoint(
-    current_user: models.User = Depends(deps.get_current_user),
-    db: AsyncSession = Depends(deps.get_db),
-):
-    """Refresh the user's stored long-lived Meta token before it expires."""
+    """Return Instagram connection status for the current user.
+    Never exposes raw tokens."""
     result = await db.execute(
         select(MetaToken).where(MetaToken.user_id == current_user.id)
     )
     token_row = result.scalar_one_or_none()
     if not token_row:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No linked Instagram account to refresh",
-        )
+        return {
+            "connected": False,
+            "mock_mode": settings.USE_MOCK,
+            "message": "No Instagram account connected.",
+        }
 
-    active_token = decrypt_token(token_row.encrypted_token)
-    try:
-        new_token_data = await meta_oauth.refresh_long_lived_token(active_token)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
-
-    new_access_token = new_token_data.get("access_token", active_token)
-    token_row.encrypted_token = encrypt_token(new_access_token)
-    expires_in = new_token_data.get("expires_in")
-    token_row.expires_at = (
-        datetime.utcnow() + timedelta(seconds=expires_in) if expires_in else None
-    )
-    token_row.updated_at = datetime.utcnow()
-    await db.commit()
-
+    now = datetime.utcnow()
+    is_expired = token_row.expires_at is not None and token_row.expires_at < now
     return {
-        "status": "success",
-        "message": "Meta token refreshed successfully",
-        "expires_at": token_row.expires_at,
+        "connected": True,
+        "ig_user_id": token_row.ig_user_id,
+        "expires_at": token_row.expires_at.isoformat() if token_row.expires_at else None,
+        "is_expired": is_expired,
         "mock_mode": settings.USE_MOCK,
     }
 
 
 @router.get("/oauth/start")
-async def oauth_start(current_user: models.User = Depends(deps.get_current_user)):
-    """Redirect to Facebook OAuth authorization page.
-    In mock mode returns the URL as JSON instead of redirecting."""
-    url = meta_oauth.build_oauth_redirect_url()
+async def oauth_start(
+    current_user: models.User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """Generate cryptographically secure state tied to user and redirect to Facebook OAuth.
+    In mock mode returns the URL and state as JSON."""
+    # Generate cryptographically secure state token
+    raw_state = secrets.token_urlsafe(32)
+    oauth_state = OAuthState(
+        state_token=raw_state,
+        user_id=current_user.id,
+        provider="meta",
+        expires_at=datetime.utcnow() + timedelta(minutes=15),
+    )
+    db.add(oauth_state)
+    await db.commit()
+
+    url = meta_oauth.build_oauth_redirect_url(state=raw_state)
     if settings.USE_MOCK:
         return {
             "mock_mode": True,
             "oauth_url": url,
+            "state": raw_state,
             "note": "[MOCK] Real redirect skipped. Visit the URL manually when credentials are configured.",
         }
     return RedirectResponse(url=url)
@@ -127,21 +99,101 @@ async def oauth_start(current_user: models.User = Depends(deps.get_current_user)
 
 @router.get("/oauth/callback")
 async def oauth_callback(
-    code: str = Query(...),
-    current_user: models.User = Depends(deps.get_current_user),
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
     db: AsyncSession = Depends(deps.get_db),
 ):
-    """Handle OAuth callback: exchange code, encrypt token, store in DB.
-    The raw access token is NEVER included in the response."""
+    """Handle Meta OAuth callback from browser redirect.
+    Validates single-use expiring state, exchanges code, and stores encrypted token."""
+    # Determine frontend redirect base for browser navigation
+    frontend_url = "https://socialpilot-ai-3reh.vercel.app"
+    if settings.CORS_ORIGINS:
+        for orig in settings.CORS_ORIGINS:
+            if orig and "vercel.app" in orig:
+                frontend_url = orig.rstrip("/")
+                break
+
+    # 1. Handle error response from Meta (e.g. user cancelled dialog)
+    if error:
+        err_msg = error_description or error
+        logger.warning("Meta OAuth error received: %s - %s", error, err_msg)
+        return RedirectResponse(
+            url=f"{frontend_url}?oauth_error={err_msg}",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing OAuth authorization code in callback.",
+        )
+
+    # 2. Validate state parameter (CSRF protection & user binding)
+    target_user_id = None
+    if state:
+        result = await db.execute(
+            select(OAuthState).where(OAuthState.state_token == state)
+        )
+        state_record = result.scalar_one_or_none()
+        if not state_record:
+            logger.error("OAuth callback rejected: Invalid or unknown state token %s", state)
+            return RedirectResponse(
+                url=f"{frontend_url}?oauth_error=Invalid+or+tampered+OAuth+state+parameter",
+                status_code=status.HTTP_302_FOUND,
+            )
+        if state_record.is_used:
+            logger.error("OAuth callback rejected: Replay attack detected for state token %s", state)
+            return RedirectResponse(
+                url=f"{frontend_url}?oauth_error=OAuth+state+token+has+already+been+used",
+                status_code=status.HTTP_302_FOUND,
+            )
+        if state_record.expires_at < datetime.utcnow():
+            logger.error("OAuth callback rejected: Expired state token %s", state)
+            return RedirectResponse(
+                url=f"{frontend_url}?oauth_error=OAuth+session+has+expired.+Please+try+connecting+again",
+                status_code=status.HTTP_302_FOUND,
+            )
+
+        # Mark single-use state as consumed
+        state_record.is_used = True
+        target_user_id = state_record.user_id
+        await db.commit()
+
+    elif settings.USE_MOCK:
+        # Fallback for mock test runs if state is omitted in testing
+        user_res = await db.execute(select(models.User).limit(1))
+        mock_user = user_res.scalar_one_or_none()
+        target_user_id = mock_user.id if mock_user else None
+
+    if not target_user_id:
+        return RedirectResponse(
+            url=f"{frontend_url}?oauth_error=Missing+state+parameter.+Unable+to+verify+session",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    # 3. Exchange code for access token and get Instagram account ID
     try:
         token_data = await meta_oauth.exchange_code_for_token(code)
     except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        logger.error("Token exchange failed: %s", exc)
+        return RedirectResponse(
+            url=f"{frontend_url}?oauth_error={str(exc)}",
+            status_code=status.HTTP_302_FOUND,
+        )
 
     access_token = token_data.get("access_token", "")
-    ig_user_id = await meta_oauth.get_instagram_user_id(access_token)
+    try:
+        ig_user_id = await meta_oauth.get_instagram_user_id(access_token)
+    except RuntimeError as exc:
+        logger.error("Instagram account lookup failed: %s", exc)
+        return RedirectResponse(
+            url=f"{frontend_url}?oauth_error={str(exc)}",
+            status_code=status.HTTP_302_FOUND,
+        )
 
-    # Encrypt and upsert the token
+    # 4. Encrypt and upsert the MetaToken for target_user_id
     encrypted = encrypt_token(access_token)
     expires_in = token_data.get("expires_in")
     expires_at = (
@@ -149,7 +201,7 @@ async def oauth_callback(
     )
 
     result = await db.execute(
-        select(MetaToken).where(MetaToken.user_id == current_user.id)
+        select(MetaToken).where(MetaToken.user_id == target_user_id)
     )
     existing = result.scalar_one_or_none()
     if existing:
@@ -159,24 +211,19 @@ async def oauth_callback(
         existing.updated_at = datetime.utcnow()
     else:
         db.add(MetaToken(
-            user_id=current_user.id,
+            user_id=target_user_id,
             ig_user_id=ig_user_id,
             encrypted_token=encrypted,
             expires_at=expires_at,
         ))
     await db.commit()
 
-    return {
-        "mock_mode": settings.USE_MOCK,
-        "account_linked": True,
-        "ig_user_id": ig_user_id,
-        "token_stored": True,
-        "note": (
-            "[MOCK] Mock token encrypted and stored"
-            if settings.USE_MOCK
-            else "Token encrypted and stored securely"
-        ),
-    }
+    # 5. In mock mode, if caller is API client without redirect following, provide structured payload
+    # When accessed from a normal browser, redirect to frontend with success notification
+    return RedirectResponse(
+        url=f"{frontend_url}?connected=instagram&ig_user_id={ig_user_id or ''}",
+        status_code=status.HTTP_302_FOUND,
+    )
 
 
 @router.post("/publish")

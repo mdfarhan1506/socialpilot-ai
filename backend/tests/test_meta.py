@@ -1,8 +1,11 @@
 """Tests for Meta OAuth and publishing router (mock mode only).
 
 Security checks:
-- OAuth callback must never return the raw access token.
-- Publishing uses stored token, not user-submitted raw token.
+- OAuth start generates cryptographically secure state tied to user.
+- OAuth callback validates single-use expiring state and prevents replay attacks.
+- OAuth callback functions without requiring Authorization header from browser redirect.
+- OAuth callback must never return raw access tokens.
+- Publishing uses stored encrypted token, not user-submitted raw token.
 - Publish without linking first must fail with 400.
 """
 import unittest
@@ -21,11 +24,6 @@ class TestMetaStatus(unittest.TestCase):
         self.assertIn("mock_mode", data)
         self.assertTrue(data["mock_mode"])
 
-    def test_status_shows_account_linked(self):
-        resp = client.get("/meta/status", headers=self.headers)
-        data = resp.json()
-        self.assertIn("account_linked", data)
-
     def test_status_requires_auth(self):
         resp = client.get("/meta/status")
         self.assertEqual(resp.status_code, 401)
@@ -36,26 +34,59 @@ class TestMetaOAuth(unittest.TestCase):
     def setUpClass(cls):
         cls.headers = get_auth_headers("meta_oauth@test.com")
 
-    def test_oauth_start_returns_url_in_mock(self):
+    def test_oauth_start_returns_url_and_state(self):
         resp = client.get("/meta/oauth/start", headers=self.headers)
         self.assertEqual(resp.status_code, 200, resp.text)
         data = resp.json()
         self.assertTrue(data.get("mock_mode"), "Expected mock_mode=True in test environment")
         self.assertIn("oauth_url", data)
+        self.assertIn("state", data)
         self.assertIn("facebook.com", data["oauth_url"])
         self.assertIn("dialog/oauth", data["oauth_url"])
+        self.assertIn(f"state={data['state']}", data["oauth_url"])
 
-    def test_oauth_callback_stores_token_securely(self):
-        """Callback must store token and NEVER return it in the response."""
-        resp = client.get("/meta/oauth/callback?code=fake_code", headers=self.headers)
-        self.assertEqual(resp.status_code, 200, resp.text)
-        data = resp.json()
-        self.assertTrue(data.get("mock_mode"))
-        self.assertTrue(data.get("token_stored"), "Token must be stored in DB")
-        self.assertTrue(data.get("account_linked"))
-        self.assertEqual(data.get("ig_user_id"), "MOCK_IG_USER_ID")
-        # SECURITY: raw access_token must NOT appear in response
-        self.assertNotIn("access_token", data, "Raw access_token must never be in response")
+    def test_oauth_callback_browser_redirect_with_valid_state(self):
+        """Callback with valid state redirects browser to frontend with success parameters."""
+        # 1. Start OAuth to generate state
+        start_res = client.get("/meta/oauth/start", headers=self.headers)
+        state = start_res.json()["state"]
+
+        # 2. Simulate browser redirect from Meta (no Authorization headers)
+        callback_res = client.get(
+            f"/meta/oauth/callback?code=mock_code&state={state}",
+            follow_redirects=False,
+        )
+        self.assertEqual(callback_res.status_code, 302)
+        redirect_location = callback_res.headers.get("location", "")
+        self.assertIn("connected=instagram", redirect_location)
+        self.assertIn("ig_user_id=MOCK_IG_USER_ID", redirect_location)
+
+        # 3. Check status is now connected for this user
+        status_res = client.get("/meta/status", headers=self.headers)
+        self.assertTrue(status_res.json()["connected"])
+        self.assertEqual(status_res.json()["ig_user_id"], "MOCK_IG_USER_ID")
+
+    def test_oauth_callback_state_single_use_prevents_replay(self):
+        """Re-using the same state token must fail (prevent CSRF/replay attack)."""
+        start_res = client.get("/meta/oauth/start", headers=self.headers)
+        state = start_res.json()["state"]
+
+        # First use succeeds
+        res1 = client.get(f"/meta/oauth/callback?code=mock_code&state={state}", follow_redirects=False)
+        self.assertEqual(res1.status_code, 302)
+        self.assertIn("connected=instagram", res1.headers.get("location", ""))
+
+        # Second use with same state must be rejected with error
+        res2 = client.get(f"/meta/oauth/callback?code=mock_code&state={state}", follow_redirects=False)
+        self.assertEqual(res2.status_code, 302)
+        self.assertIn("oauth_error=", res2.headers.get("location", ""))
+        self.assertIn("already+been+used", res2.headers.get("location", ""))
+
+    def test_oauth_callback_invalid_state_rejected(self):
+        """Callback with forged/invalid state must be rejected."""
+        res = client.get("/meta/oauth/callback?code=mock_code&state=fake_tampered_state", follow_redirects=False)
+        self.assertEqual(res.status_code, 302)
+        self.assertIn("oauth_error=", res.headers.get("location", ""))
 
     def test_oauth_requires_auth(self):
         resp = client.get("/meta/oauth/start")
@@ -66,13 +97,15 @@ class TestMetaPublish(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.headers = get_auth_headers("meta_pub@test.com")
-        # Link account first via OAuth callback
-        client.get("/meta/oauth/callback?code=fake_code", headers=cls.headers)
+        # Link account first via OAuth start & callback with valid state
+        start_res = client.get("/meta/oauth/start", headers=cls.headers)
+        state = start_res.json()["state"]
+        client.get(f"/meta/oauth/callback?code=fake_code&state={state}", follow_redirects=False)
 
         cls.unlinked_headers = get_auth_headers("meta_unlinked@test.com")
 
     def test_publish_uses_stored_token(self):
-        """Publish endpoint no longer requires raw token in request body."""
+        """Publish endpoint uses stored token from the linked account."""
         resp = client.post(
             "/meta/publish",
             json={

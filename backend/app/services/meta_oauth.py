@@ -31,7 +31,7 @@ GRAPH_BASE = "https://graph.facebook.com/v19.0"
 AUTH_BASE = "https://www.facebook.com/v19.0/dialog/oauth"
 
 
-def build_oauth_redirect_url() -> str:
+def build_oauth_redirect_url(state: Optional[str] = None) -> str:
     """Return the Facebook OAuth authorization URL the user must visit."""
     params = {
         "client_id": settings.META_APP_ID,
@@ -39,6 +39,8 @@ def build_oauth_redirect_url() -> str:
         "scope": "instagram_basic,pages_show_list,instagram_content_publish,pages_read_engagement,instagram_manage_insights",
         "response_type": "code",
     }
+    if state:
+        params["state"] = state
     return f"{AUTH_BASE}?{urllib.parse.urlencode(params)}"
 
 

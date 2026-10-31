@@ -7,6 +7,7 @@ from .instagram import InstagramAccount, OAuthCredential
 from .research import ResearchRun, TrendOpportunity
 from .comment import Comment
 from .meta_token import MetaToken
+from .oauth_state import OAuthState
 from .content import (
     ContentIdea,
     ContentPlan,

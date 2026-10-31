@@ -10,6 +10,7 @@ from .models.user import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 async def get_db() -> AsyncSession:
+    await db.ensure_tables()
     async with db.AsyncSessionLocal() as session:
         yield session
 
