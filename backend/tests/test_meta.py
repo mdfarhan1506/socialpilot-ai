@@ -41,8 +41,9 @@ class TestMetaOAuth(unittest.TestCase):
         self.assertTrue(data.get("mock_mode"), "Expected mock_mode=True in test environment")
         self.assertIn("oauth_url", data)
         self.assertIn("state", data)
-        self.assertIn("facebook.com", data["oauth_url"])
-        self.assertIn("dialog/oauth", data["oauth_url"])
+        # Instagram Login: authorization URL is now api.instagram.com
+        self.assertIn("api.instagram.com", data["oauth_url"])
+        self.assertIn("oauth/authorize", data["oauth_url"])
         self.assertIn(f"state={data['state']}", data["oauth_url"])
 
     def test_oauth_callback_browser_redirect_with_valid_state(self):
