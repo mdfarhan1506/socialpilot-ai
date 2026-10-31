@@ -17,8 +17,8 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,14 +99,19 @@ async def oauth_start(
 
 @router.get("/oauth/callback")
 async def oauth_callback(
+    request: Request,
     code: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
     error_description: Optional[str] = Query(None),
     db: AsyncSession = Depends(deps.get_db),
 ):
-    """Handle Meta OAuth callback from browser redirect.
+    """Handle Meta OAuth callback from browser redirect or direct frontend API fetch.
     Validates single-use expiring state, exchanges code, and stores encrypted token."""
+    accept_hdr = request.headers.get("accept", "")
+    sec_fetch_dest = request.headers.get("sec-fetch-dest", "")
+    wants_json = ("application/json" in accept_hdr or "fetch" in sec_fetch_dest) and sec_fetch_dest != "document"
+
     # Determine frontend redirect base for browser navigation
     frontend_url = "https://socialpilot-ai-3reh.vercel.app"
     if settings.CORS_ORIGINS:
@@ -218,8 +223,20 @@ async def oauth_callback(
         ))
     await db.commit()
 
-    # 5. In mock mode, if caller is API client without redirect following, provide structured payload
-    # When accessed from a normal browser, redirect to frontend with success notification
+    # 5. Return JSON payload for direct client fetches, or 302 Redirect for top-level browser navigations
+    if wants_json:
+        return JSONResponse({
+            "mock_mode": settings.USE_MOCK,
+            "account_linked": True,
+            "ig_user_id": ig_user_id,
+            "token_stored": True,
+            "note": (
+                "[MOCK] Mock token encrypted and stored"
+                if settings.USE_MOCK
+                else "Token encrypted and stored securely"
+            ),
+        })
+
     return RedirectResponse(
         url=f"{frontend_url}?connected=instagram&ig_user_id={ig_user_id or ''}",
         status_code=status.HTTP_302_FOUND,

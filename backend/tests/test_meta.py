@@ -66,6 +66,21 @@ class TestMetaOAuth(unittest.TestCase):
         self.assertTrue(status_res.json()["connected"])
         self.assertEqual(status_res.json()["ig_user_id"], "MOCK_IG_USER_ID")
 
+    def test_oauth_callback_direct_api_fetch_returns_json(self):
+        """Direct API fetch from frontend with Accept: application/json returns JSON."""
+        start_res = client.get("/meta/oauth/start", headers=self.headers)
+        state = start_res.json()["state"]
+
+        res = client.get(
+            f"/meta/oauth/callback?code=mock_code&state={state}",
+            headers={"Accept": "application/json"},
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data.get("account_linked"))
+        self.assertTrue(data.get("token_stored"))
+        self.assertEqual(data.get("ig_user_id"), "MOCK_IG_USER_ID")
+
     def test_oauth_callback_state_single_use_prevents_replay(self):
         """Re-using the same state token must fail (prevent CSRF/replay attack)."""
         start_res = client.get("/meta/oauth/start", headers=self.headers)
