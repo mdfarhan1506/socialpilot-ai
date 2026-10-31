@@ -1,14 +1,18 @@
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 from .routers import auth, workspace, brand, content, meta, scheduling, comments, analytics, autonomous
 from .settings import settings
 from .db import engine
 from .models.base import Base
 
-from fastapi.middleware.cors import CORSMiddleware
+logger = logging.getLogger("socialpilot.main")
 
 app = FastAPI(title="SocialPilot AI Backend", version="0.1.0")
 
-# Allow configured origins and all Vercel preview/production deployments
+# ── CORS ──────────────────────────────────────────────────────────────
 cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS if origin.strip()]
 
 app.add_middleware(
@@ -20,7 +24,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+
+# ── Global exception handler ─────────────────────────────────────────
+# Ensures unhandled errors return JSON with CORS headers so the browser
+# can actually read the error instead of showing "Failed to fetch".
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled %s on %s: %s", type(exc).__name__, request.url.path, exc, exc_info=True)
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if "vercel.app" in origin or origin in cors_origins:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {type(exc).__name__}: {str(exc)}"},
+        headers=headers,
+    )
+
+
+# ── Routers ───────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
 app.include_router(brand.router, prefix="/brand", tags=["brand"])
@@ -32,6 +55,7 @@ app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 app.include_router(autonomous.router, prefix="/autonomous", tags=["autonomous"])
 
 
+# ── Startup ───────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup_event():
     async with engine.begin() as conn:
