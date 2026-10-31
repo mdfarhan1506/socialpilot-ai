@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     META_OAUTH_REDIRECT_URI: str = os.getenv(
         "META_OAUTH_REDIRECT_URI", "http://localhost:3000/api/auth/callback"
     )
+    META_CONFIG_ID: str = os.getenv("META_CONFIG_ID", "")
     MOCK_INSTAGRAM: bool = not (META_APP_ID and META_APP_SECRET)
 
     # Object storage (MinIO for dev)

@@ -1,4 +1,4 @@
-"""Meta Instagram publishing service — Instagram Login (Business Login for Instagram).
+"""Meta Instagram publishing service.
 
 In real mode:
   1. Create a media container: POST /{ig_user_id}/media
@@ -9,8 +9,7 @@ In mock mode returns a clearly labeled fake response without making any
 HTTP calls.
 
 NOTE: Real publishing requires:
-  - A valid long-lived Instagram user access token with
-    instagram_business_content_publish scope.
+  - A valid user or system user access token with instagram_content_publish permission.
   - An Instagram Business or Creator (Professional) account.
   - The image/video must be publicly accessible (a signed MinIO/S3 URL works).
 """
@@ -23,7 +22,7 @@ import httpx
 
 from ..settings import settings
 
-GRAPH_BASE = "https://graph.instagram.com/v21.0"
+GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
 
 def _parse_meta_error(resp_text: str, default_msg: str) -> str:

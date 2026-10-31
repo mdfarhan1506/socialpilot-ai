@@ -1,23 +1,15 @@
-"""Meta Instagram OAuth service — Instagram Login (Business Login for Instagram).
+"""Meta Instagram OAuth service — Instagram API with Unified Login.
 
-Handles the OAuth 2.0 code exchange flow using the Instagram Login API.
-In mock mode the actual HTTP calls are skipped.
+Handles the OAuth 2.0 code exchange flow using Meta's official Unified Login architecture
+(Facebook Login for Business, marked Instagram Login Compatible).
 
-Required Meta App permissions (Instagram Login scopes):
-  - instagram_business_basic          – profile info
-  - instagram_business_content_publish – publish posts
-  - instagram_business_manage_comments – read/manage comments
-  - instagram_business_manage_insights – media insights
+Supports direct login with Instagram credentials without requiring a Facebook Page.
 
-Required setup (outside this codebase):
-  1. Go to developers.facebook.com and open your app.
-  2. Under "Products", add the "Instagram" product (Instagram Login for Business).
-  3. Under Instagram → Instagram Login for Business:
-       - Add the callback URI in "Valid OAuth Redirect URIs".
-       - Request the scopes listed above.
-  4. Set META_APP_ID, META_APP_SECRET, META_OAUTH_REDIRECT_URI in Vercel env vars.
-  5. The Instagram account must be a Professional (Business or Creator) account.
-     No Facebook Page is required with Instagram Login.
+API Architecture:
+  - Auth dialog: https://www.facebook.com/v19.0/dialog/oauth (prompt=login)
+  - Token exchange: https://graph.facebook.com/v19.0/oauth/access_token
+  - Account discovery: https://graph.facebook.com/v19.0/me/assigned_instagram_accounts
+  - Direct profile fallback: https://graph.facebook.com/v19.0/me or /me/accounts
 """
 from __future__ import annotations
 
@@ -28,41 +20,43 @@ import httpx
 
 from ..settings import settings
 
-# Instagram Login API endpoints
-AUTH_BASE = "https://api.instagram.com/oauth/authorize"
-IG_TOKEN_URL = "https://api.instagram.com/oauth/access_token"        # short-lived (POST)
-IG_LONG_LIVED_URL = "https://graph.instagram.com/access_token"       # long-lived (GET)
-IG_REFRESH_URL = "https://graph.instagram.com/refresh_access_token"  # refresh (GET)
-GRAPH_BASE = "https://graph.instagram.com/v21.0"                     # Graph API for IG Login tokens
+# Meta OAuth & Graph API endpoints
+AUTH_BASE = "https://www.facebook.com/v19.0/dialog/oauth"
+GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
-# Instagram Login scopes for Business Login
+# Standard permission scopes for Instagram Unified Login
 _IG_SCOPES = (
-    "instagram_business_basic,"
-    "instagram_business_content_publish,"
-    "instagram_business_manage_comments,"
-    "instagram_business_manage_insights"
+    "instagram_basic,"
+    "instagram_content_publish,"
+    "instagram_manage_comments,"
+    "instagram_manage_insights"
 )
 
 
 def build_oauth_redirect_url(state: Optional[str] = None) -> str:
-    """Return the Instagram OAuth authorization URL the user must visit."""
+    """Return the Meta OAuth authorization URL configured for direct Instagram login."""
     params = {
         "client_id": settings.META_APP_ID,
         "redirect_uri": settings.META_OAUTH_REDIRECT_URI,
-        "scope": _IG_SCOPES,
         "response_type": "code",
+        # prompt=login forces the prompt to explicitly display both Instagram & Facebook login options
+        "prompt": "login",
     }
+    # If a config_id is provided in settings, Meta uses the server-side configuration bundle
+    if settings.META_CONFIG_ID:
+        params["config_id"] = settings.META_CONFIG_ID
+    else:
+        params["scope"] = _IG_SCOPES
+
     if state:
         params["state"] = state
     return f"{AUTH_BASE}?{urllib.parse.urlencode(params)}"
 
 
 async def exchange_code_for_token(code: str) -> dict:
-    """Exchange an Instagram OAuth authorization code for a long-lived token.
+    """Exchange an OAuth authorization code for an access token.
 
-    Step 1: POST to api.instagram.com/oauth/access_token  → short-lived token
-    Step 2: GET  graph.instagram.com/access_token         → long-lived token (~60 days)
-
+    Calls GET https://graph.facebook.com/v19.0/oauth/access_token
     Returns a dict with keys: access_token, token_type, expires_in.
     Raises RuntimeError on failure.
     """
@@ -75,43 +69,44 @@ async def exchange_code_for_token(code: str) -> dict:
         }
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        # Step 1: short-lived token via POST (Instagram Login requirement)
-        resp = await client.post(
-            IG_TOKEN_URL,
-            data={
+        # Step 1: exchange authorization code for access token
+        resp = await client.get(
+            f"{GRAPH_BASE}/oauth/access_token",
+            params={
                 "client_id": settings.META_APP_ID,
                 "client_secret": settings.META_APP_SECRET,
-                "grant_type": "authorization_code",
                 "redirect_uri": settings.META_OAUTH_REDIRECT_URI,
                 "code": code,
             },
         )
         if resp.status_code != 200:
-            raise RuntimeError(f"Instagram short-lived token exchange failed: {resp.text}")
-        short_data = resp.json()
-        short_token = short_data.get("access_token")
+            raise RuntimeError(f"Meta token exchange failed: {resp.text}")
+        token_data = resp.json()
+        short_token = token_data.get("access_token")
         if not short_token:
-            raise RuntimeError(f"No access_token in Instagram token response: {short_data}")
+            raise RuntimeError(f"No access_token in Meta token response: {token_data}")
 
-        # Step 2: exchange for a long-lived token (~60 days)
+        # Step 2: exchange short-lived token for long-lived token (~60 days) if applicable
         resp2 = await client.get(
-            IG_LONG_LIVED_URL,
+            f"{GRAPH_BASE}/oauth/access_token",
             params={
-                "grant_type": "ig_exchange_token",
+                "grant_type": "fb_exchange_token",
+                "client_id": settings.META_APP_ID,
                 "client_secret": settings.META_APP_SECRET,
-                "access_token": short_token,
+                "fb_exchange_token": short_token,
             },
         )
-        if resp2.status_code != 200:
-            raise RuntimeError(f"Instagram long-lived token exchange failed: {resp2.text}")
-        return resp2.json()
+        if resp2.status_code == 200:
+            long_data = resp2.json()
+            if long_data.get("access_token"):
+                return long_data
+
+        # If long-lived exchange is not required (e.g. system user tokens), return primary token
+        return token_data
 
 
 async def refresh_long_lived_token(access_token: str) -> dict:
-    """Refresh an active long-lived Instagram user access token before it expires.
-
-    Must be called while the token is still valid (not yet expired).
-    """
+    """Refresh an active long-lived Meta token before it expires."""
     if settings.USE_MOCK or not (settings.META_APP_ID and settings.META_APP_SECRET):
         return {
             "access_token": "REFRESHED_MOCK_ACCESS_TOKEN",
@@ -122,43 +117,74 @@ async def refresh_long_lived_token(access_token: str) -> dict:
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
-            IG_REFRESH_URL,
+            f"{GRAPH_BASE}/oauth/access_token",
             params={
-                "grant_type": "ig_refresh_token",
-                "access_token": access_token,
+                "grant_type": "fb_exchange_token",
+                "client_id": settings.META_APP_ID,
+                "client_secret": settings.META_APP_SECRET,
+                "fb_exchange_token": access_token,
             },
         )
         if resp.status_code != 200:
-            raise RuntimeError(f"Instagram token refresh failed: {resp.text}")
+            raise RuntimeError(f"Meta token refresh failed: {resp.text}")
         return resp.json()
 
 
 async def get_instagram_user_id(access_token: str) -> Optional[str]:
-    """Fetch the Instagram user ID (numeric) from the Instagram Login token.
+    """Fetch the Instagram user ID (numeric) from the authorized account.
 
-    With Instagram Login (Business Login for Instagram), no Facebook Page lookup
-    is needed. The token itself is tied to the Instagram Professional account.
-    Returns the numeric Instagram user_id string.
+    Checks:
+      1. /me/assigned_instagram_accounts (standard for Unified Login / Business Login)
+      2. /me (direct Instagram Graph user lookup)
+      3. /me/accounts (Facebook Page linked Instagram Business Account fallback)
     """
     if settings.USE_MOCK:
         return "MOCK_IG_USER_ID"
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            f"{GRAPH_BASE}/me",
-            params={
-                "fields": "user_id,username,account_type,name",
-                "access_token": access_token,
-            },
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(f"Failed to fetch Instagram user info: {resp.text}")
-        data = resp.json()
-        user_id = data.get("user_id") or data.get("id")
-        if not user_id:
-            raise RuntimeError(
-                f"Instagram /me response did not contain user_id. "
-                f"Ensure the account is a Professional (Business or Creator) account. "
-                f"Response: {data}"
+        # 1. Unified Login / Business Login: assigned Instagram accounts (no Page needed)
+        try:
+            resp = await client.get(
+                f"{GRAPH_BASE}/me/assigned_instagram_accounts",
+                params={"fields": "id,username", "access_token": access_token},
             )
-        return str(user_id)
+            if resp.status_code == 200:
+                data = resp.json()
+                accounts = data.get("data", [])
+                if accounts and accounts[0].get("id"):
+                    return str(accounts[0]["id"])
+        except Exception:
+            pass
+
+        # 2. Direct user endpoint check
+        try:
+            resp = await client.get(
+                f"{GRAPH_BASE}/me",
+                params={"fields": "id,user_id,username", "access_token": access_token},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                uid = data.get("user_id") or data.get("id")
+                if uid:
+                    return str(uid)
+        except Exception:
+            pass
+
+        # 3. Fallback: /me/accounts -> instagram_business_account
+        resp = await client.get(
+            f"{GRAPH_BASE}/me/accounts",
+            params={"fields": "name,instagram_business_account", "access_token": access_token},
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            pages = data.get("data", [])
+            for page in pages:
+                ig = page.get("instagram_business_account")
+                if ig and ig.get("id"):
+                    return str(ig["id"])
+
+        raise RuntimeError(
+            "Could not find an Instagram Professional account associated with this token. "
+            "Please ensure your Instagram account is a Professional (Business or Creator) account "
+            "and was granted during the login prompt."
+        )

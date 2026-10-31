@@ -1,8 +1,7 @@
 """Meta Graph API Insights service for Instagram media objects.
 
-Uses Instagram Login (Business Login for Instagram) tokens with graph.instagram.com.
 Fetches direct media engagement fields (likes, comments) and insights metrics
-(reach, saved, impressions) using currently supported Graph API v21.0 endpoints.
+(reach, saved, impressions) using currently supported Graph API endpoints.
 """
 from __future__ import annotations
 
@@ -14,7 +13,7 @@ from ..settings import settings
 
 log = logging.getLogger(__name__)
 
-GRAPH_BASE = "https://graph.instagram.com/v21.0"
+GRAPH_BASE = "https://graph.facebook.com/v19.0"
 
 
 class MetaInsightsService:
