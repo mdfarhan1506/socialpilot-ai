@@ -87,14 +87,15 @@ async def oauth_start(
     await db.commit()
 
     url = meta_oauth.build_oauth_redirect_url(state=raw_state)
-    if settings.USE_MOCK:
-        return {
-            "mock_mode": True,
-            "oauth_url": url,
-            "state": raw_state,
-            "note": "[MOCK] Real redirect skipped. Visit the URL manually when credentials are configured.",
-        }
-    return RedirectResponse(url=url)
+    # Always return JSON so the frontend can navigate via window.location.href.
+    # Never issue a RedirectResponse here — fetch() follows it automatically,
+    # ending up at Meta's login HTML which cannot be parsed as JSON.
+    return {
+        "mock_mode": settings.USE_MOCK,
+        "oauth_url": url,
+        "state": raw_state,
+        **({"note": "[MOCK] Real redirect skipped."} if settings.USE_MOCK else {}),
+    }
 
 
 @router.get("/oauth/callback")
