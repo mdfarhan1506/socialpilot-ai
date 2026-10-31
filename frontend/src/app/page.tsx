@@ -85,6 +85,22 @@ export default function Home() {
     } else {
       setAuthModalOpen(true);
     }
+
+    // Handle OAuth redirect query parameters (connected or error)
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const oauthError = urlParams.get('oauth_error');
+      const connected = urlParams.get('connected');
+
+      if (oauthError) {
+        addToast(`Instagram connection failed: ${decodeURIComponent(oauthError)}`, 'error');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (connected === 'instagram') {
+        addToast('🎉 Instagram account successfully connected!', 'success');
+        api.getMetaStatus().then(setMetaStatus).catch(() => null);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
   }, []);
 
   // Load workspaces

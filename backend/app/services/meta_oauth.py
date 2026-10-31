@@ -35,9 +35,10 @@ _IG_SCOPES = (
 
 def build_oauth_redirect_url(state: Optional[str] = None) -> str:
     """Return the Meta OAuth authorization URL configured for direct Instagram login."""
+    redirect_uri = settings.META_OAUTH_REDIRECT_URI.strip()
     params = {
-        "client_id": settings.META_APP_ID,
-        "redirect_uri": settings.META_OAUTH_REDIRECT_URI,
+        "client_id": settings.META_APP_ID.strip(),
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         # prompt=login forces the prompt to explicitly display both Instagram & Facebook login options
         "prompt": "login",
@@ -70,13 +71,17 @@ async def exchange_code_for_token(code: str) -> dict:
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         # Step 1: exchange authorization code for access token
+        # Clean the authorization code in case of URL fragments (e.g. #_=_ added by Meta)
+        clean_code = code.split("#")[0].strip() if code else ""
+        redirect_uri = settings.META_OAUTH_REDIRECT_URI.strip()
+
         resp = await client.get(
             f"{GRAPH_BASE}/oauth/access_token",
             params={
-                "client_id": settings.META_APP_ID,
-                "client_secret": settings.META_APP_SECRET,
-                "redirect_uri": settings.META_OAUTH_REDIRECT_URI,
-                "code": code,
+                "client_id": settings.META_APP_ID.strip(),
+                "client_secret": settings.META_APP_SECRET.strip(),
+                "redirect_uri": redirect_uri,
+                "code": clean_code,
             },
         )
         if resp.status_code != 200:
@@ -86,22 +91,29 @@ async def exchange_code_for_token(code: str) -> dict:
         if not short_token:
             raise RuntimeError(f"No access_token in Meta token response: {token_data}")
 
-        # Step 2: exchange short-lived token for long-lived token (~60 days) if applicable
-        resp2 = await client.get(
-            f"{GRAPH_BASE}/oauth/access_token",
-            params={
-                "grant_type": "fb_exchange_token",
-                "client_id": settings.META_APP_ID,
-                "client_secret": settings.META_APP_SECRET,
-                "fb_exchange_token": short_token,
-            },
-        )
-        if resp2.status_code == 200:
-            long_data = resp2.json()
-            if long_data.get("access_token"):
-                return long_data
+        # Step 2: If using Unified Login with config_id, the returned token is already a
+        # Business Integration System User Access Token and does not use fb_exchange_token.
+        if settings.META_CONFIG_ID:
+            return token_data
 
-        # If long-lived exchange is not required (e.g. system user tokens), return primary token
+        # For classic user tokens, exchange for a long-lived token (~60 days)
+        try:
+            resp2 = await client.get(
+                f"{GRAPH_BASE}/oauth/access_token",
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": settings.META_APP_ID.strip(),
+                    "client_secret": settings.META_APP_SECRET.strip(),
+                    "fb_exchange_token": short_token,
+                },
+            )
+            if resp2.status_code == 200:
+                long_data = resp2.json()
+                if long_data.get("access_token"):
+                    return long_data
+        except Exception:
+            pass
+
         return token_data
 
 
