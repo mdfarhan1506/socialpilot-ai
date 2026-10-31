@@ -7,6 +7,14 @@ class Settings(BaseSettings):
     # Core
     APP_NAME: str = "SocialPilot AI"
     DEBUG: bool = True
+    CORS_ORIGINS: list[str] = [
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000"
+        ).split(",")
+        if origin.strip()
+    ]
 
     # Database
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
