@@ -145,7 +145,7 @@ export default function ContentStudioView({
       onToast('Caption cannot be empty', 'error');
       return;
     }
-    if (!metaStatus?.account_linked) {
+    if (!(metaStatus?.account_linked || metaStatus?.connected)) {
       onToast(
         'No Instagram account linked. Please link your account in the Social Accounts tab first.',
         'error'

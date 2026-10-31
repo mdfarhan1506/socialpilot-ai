@@ -53,6 +53,7 @@ async def meta_status(
     if not token_row:
         return {
             "connected": False,
+            "account_linked": False,
             "mock_mode": settings.USE_MOCK,
             "message": "No Instagram account connected.",
         }
@@ -61,6 +62,7 @@ async def meta_status(
     is_expired = token_row.expires_at is not None and token_row.expires_at < now
     return {
         "connected": True,
+        "account_linked": True,
         "ig_user_id": token_row.ig_user_id,
         "expires_at": token_row.expires_at.isoformat() if token_row.expires_at else None,
         "is_expired": is_expired,

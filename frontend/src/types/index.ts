@@ -66,8 +66,9 @@ export interface AppConfig {
 
 export interface MetaStatus {
   mock_mode: boolean;
-  meta_configured: boolean;
-  account_linked: boolean;
+  meta_configured?: boolean;
+  connected?: boolean;
+  account_linked?: boolean;
   ig_user_id?: string | null;
   redirect_uri?: string;
 }

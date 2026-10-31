@@ -106,9 +106,9 @@ export default function SocialAccountsView({
             </div>
 
             <span
-              className={`status-chip ${metaStatus?.account_linked ? 'status-published' : 'status-failed'}`}
+              className={`status-chip ${(metaStatus?.account_linked || metaStatus?.connected) ? 'status-published' : 'status-failed'}`}
             >
-              {metaStatus?.account_linked ? 'Connected' : 'Disconnected'}
+              {(metaStatus?.account_linked || metaStatus?.connected) ? 'Connected' : 'Disconnected'}
             </span>
           </div>
 
@@ -124,15 +124,15 @@ export default function SocialAccountsView({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
               <span style={{ color: 'var(--text-muted)' }}>Status:</span>
-              <strong style={{ color: metaStatus?.account_linked ? 'var(--success)' : 'var(--warning)' }}>
-                {metaStatus?.account_linked ? 'Linked & Active' : 'Not Connected'}
+              <strong style={{ color: (metaStatus?.account_linked || metaStatus?.connected) ? 'var(--success)' : 'var(--warning)' }}>
+                {(metaStatus?.account_linked || metaStatus?.connected) ? 'Linked & Active' : 'Not Connected'}
               </strong>
             </div>
 
-            {metaStatus?.account_linked && (
+            {(metaStatus?.account_linked || metaStatus?.connected) && (
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <span style={{ color: 'var(--text-muted)' }}>IG User ID:</span>
-                <code>{metaStatus.ig_user_id || 'MOCK_IG_USER_ID'}</code>
+                <code>{metaStatus.ig_user_id || 'Connected'}</code>
               </div>
             )}
 
@@ -142,7 +142,7 @@ export default function SocialAccountsView({
             </div>
           </div>
 
-          {metaStatus?.account_linked ? (
+          {(metaStatus?.account_linked || metaStatus?.connected) ? (
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button
                 className="btn btn-secondary"

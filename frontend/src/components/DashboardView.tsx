@@ -51,7 +51,7 @@ export default function DashboardView({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderLeft: `4px solid ${metaStatus?.account_linked ? 'var(--success)' : 'var(--warning)'}`,
+          borderLeft: `4px solid ${(metaStatus?.account_linked || metaStatus?.connected) ? 'var(--success)' : 'var(--warning)'}`,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -60,9 +60,9 @@ export default function DashboardView({
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>Instagram Connection</h3>
               <span
-                className={`status-chip ${metaStatus?.account_linked ? 'status-published' : 'status-failed'}`}
+                className={`status-chip ${(metaStatus?.account_linked || metaStatus?.connected) ? 'status-published' : 'status-failed'}`}
               >
-                {metaStatus?.account_linked ? 'Connected' : 'Not Connected'}
+                {(metaStatus?.account_linked || metaStatus?.connected) ? 'Connected' : 'Not Connected'}
               </span>
               {metaStatus?.mock_mode && (
                 <span className="mode-badge mock" style={{ fontSize: '0.7rem' }}>
@@ -71,18 +71,18 @@ export default function DashboardView({
               )}
             </div>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              {metaStatus?.account_linked
-                ? `Linked IG User ID: ${metaStatus.ig_user_id || 'MOCK_IG_USER_ID'} • Ready for scheduled & instant publishing`
+              {(metaStatus?.account_linked || metaStatus?.connected)
+                ? `Linked IG User ID: ${metaStatus.ig_user_id || 'Connected'} • Ready for scheduled & instant publishing`
                 : 'Connect your Instagram account to enable automated post publishing and feed management.'}
             </p>
           </div>
         </div>
 
         <button
-          className={`btn ${metaStatus?.account_linked ? 'btn-secondary' : 'btn-primary'}`}
+          className={`btn ${(metaStatus?.account_linked || metaStatus?.connected) ? 'btn-secondary' : 'btn-primary'}`}
           onClick={() => onNavigate('accounts')}
         >
-          {metaStatus?.account_linked ? 'Manage Account' : 'Connect Instagram'}
+          {(metaStatus?.account_linked || metaStatus?.connected) ? 'Manage Account' : 'Connect Instagram'}
         </button>
       </div>
 
