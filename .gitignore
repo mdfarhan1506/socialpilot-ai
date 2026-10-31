@@ -57,3 +57,4 @@ node_modules/
 out/
 build/
 .turbo/
+.neon

@@ -64,7 +64,11 @@ class Settings(BaseSettings):
     # Override explicitly with USE_MOCK=false in .env to force real mode.
     USE_MOCK: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     def __init__(self, **data):
         super().__init__(**data)
