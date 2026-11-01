@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import deps, models
 from ..models.content import ScheduledPost
+from ..services.content_uniqueness import is_duplicate_or_near_duplicate, get_recent_posts_in_window
 
 router = APIRouter()
 
@@ -80,8 +81,12 @@ async def create_schedule(
             detail="scheduled_time must be in the future",
         )
 
-    # Detect duplicate: same workspace + caption + scheduled_time
-    dup = await db.execute(
+    # Detect duplicate: check exact duplicate at same time or near-duplicate within 7 days
+    recent = await get_recent_posts_in_window(db, ws_uuid, days=7, reference_time=sched)
+    recent_captions = [p["caption"] for p in recent if p.get("caption")]
+
+    # Exact check at same time first
+    exact_dup = await db.execute(
         select(ScheduledPost).where(
             ScheduledPost.caption == req.caption,
             ScheduledPost.workspace_id == ws_uuid,
@@ -89,10 +94,20 @@ async def create_schedule(
             ScheduledPost.status == "scheduled",
         )
     )
-    if dup.scalar_one_or_none():
+    if exact_dup.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Duplicate scheduled post detected (same caption, workspace, and time)",
+        )
+
+    # Near-duplicate check across 7-day schedule window
+    is_near_dup, matched_text, sim = is_duplicate_or_near_duplicate(
+        req.caption, recent_captions, threshold=0.85
+    )
+    if is_near_dup:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Near-duplicate caption detected (similarity: {sim:.0%}). Please revise caption to ensure distinct content across your 7-day calendar.",
         )
 
     post = ScheduledPost(

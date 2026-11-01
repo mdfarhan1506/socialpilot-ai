@@ -21,6 +21,11 @@ from ..models.meta_token import MetaToken
 from ..services.learning_engine import learning_engine
 from ..services.provider_factory import get_ai_provider
 from ..services.image_service import generate_topic_image
+from ..services.content_uniqueness import (
+    is_duplicate_or_near_duplicate,
+    get_recent_posts_in_window,
+    pick_distinct_format_and_angle,
+)
 from ..settings import settings
 
 log = logging.getLogger(__name__)
@@ -164,6 +169,8 @@ class AutonomousEngine:
         target_topic: str,
         recommended_hook: str,
         day_offset: int,
+        format_info: Optional[Dict[str, str]] = None,
+        attempt: int = 1,
     ) -> Dict[str, Any]:
         """Generate platform-ready post content using OpenAI when available, or a grounded fallback template.
         
@@ -171,9 +178,12 @@ class AutonomousEngine:
         1. Never invent fake statistics or unverified percentage claims.
         2. Ground insights in established principles, actionable frameworks, or observational questions.
         3. Clearly identify whether the content was AI-generated or produced by a fallback template.
+        4. Support varied formats (educational_tips, question, checklist, contrarian_insight, promotional_offer).
         """
         is_ai_generated = False
         source = "fallback_template" if not settings.USE_MOCK else "mock_simulation"
+        fmt_name = format_info.get("format", "single_image") if format_info else "single_image"
+        fmt_angle = format_info.get("angle", "Actionable perspective") if format_info else "Actionable perspective"
 
         if not settings.USE_MOCK and settings.OPENAI_API_KEY:
             try:
@@ -184,7 +194,8 @@ class AutonomousEngine:
                     f"Target audience: {audience}.\n"
                     f"Brand voice and tone: {tone}.\n"
                     f"Primary topic: {target_topic}.\n"
-                    f"Hook format to utilize: {recommended_hook} (e.g. question, framework, observation, or step-by-step insight).\n\n"
+                    f"Content format: {fmt_name} (Angle: {fmt_angle}).\n"
+                    f"Hook format to utilize: {recommended_hook} (attempt variation: {attempt}).\n\n"
                     f"CRITICAL COMPLIANCE RULES:\n"
                     f"1. Do NOT invent statistics, fake percentages, or present unverified survey numbers as facts.\n"
                     f"2. Ground insights in proven principles, actionable steps, or thought-provoking questions.\n"
@@ -213,7 +224,7 @@ class AutonomousEngine:
                         parsed = ai_res
 
                 if parsed and parsed.get("caption"):
-                    concept = parsed.get("concept") or parsed.get("title") or f"{niche} Strategy: Day {day_offset}"
+                    concept = parsed.get("concept") or parsed.get("title") or f"{niche} {target_topic}: Day {day_offset}"
                     hook = parsed.get("hook") or parsed.get("caption", "").split("\n")[0]
                     script_body = parsed.get("script_or_body") or parsed.get("description") or parsed.get("caption")
                     cta = parsed.get("call_to_action") or "Save this post and drop your perspective below!"
@@ -231,32 +242,67 @@ class AutonomousEngine:
                         "caption": caption,
                         "is_ai_generated": True,
                         "source": "openai",
+                        "format": fmt_name,
                     }
             except Exception as e:
                 log.warning("AI content generation failed, falling back to grounded template: %s", e)
 
-        # Grounded Fallback Template (NO fake statistics!)
-        concept = f"{niche} Framework: Day {day_offset}"
-        if recommended_hook == "question":
-            hook = f"What is the single biggest operational bottleneck holding your {niche} brand back?"
-        elif recommended_hook == "framework":
-            hook = f"The 3 core pillars behind high-performing {niche} systems:"
-        elif recommended_hook == "actionable":
-            hook = f"How top operators in {niche} structure their daily workflow for maximum leverage:"
-        elif recommended_hook == "contrarian":
-            hook = f"Why relying on disconnected manual routines is slowing your {niche} momentum:"
+        # Grounded Fallback Template (NO fake statistics, distinct per day, format, and attempt!)
+        concept = f"{target_topic} ({fmt_angle}): Day {day_offset}"
+        if fmt_name == "question" or recommended_hook == "question":
+            hook = f"What is the single biggest operational bottleneck holding your {niche} brand back regarding {target_topic}?"
+            script_body = (
+                f"Most leaders focus on symptoms rather than root causes.\n\n"
+                f"When addressing {target_topic.lower()}:\n"
+                f"- Are expectations aligned with team bandwidth?\n"
+                f"- Is your tooling supporting or obstructing workflow?\n"
+                f"- What metric are you prioritizing this quarter?"
+            )
+            cta = "Drop your answer in the comments and let us discuss!"
+        elif fmt_name == "checklist" or recommended_hook == "checklist":
+            hook = f"The 4-point {target_topic} checklist for high-performing {niche} teams:"
+            script_body = (
+                f"Before scaling operations, verify:\n"
+                f"[ ] Documented repeatable SOPs\n"
+                f"[ ] Real-time performance visibility\n"
+                f"[ ] Clear delegation lines\n"
+                f"[ ] Automated data collection"
+            )
+            cta = "Bookmark this checklist for your next planning session!"
+        elif fmt_name == "contrarian_insight" or recommended_hook == "contrarian":
+            hook = f"Why relying on disconnected manual routines is slowing your {target_topic} momentum:"
+            script_body = (
+                f"Working harder is not an operating strategy.\n\n"
+                f"Top operators in {niche} build leverage by automating repetitive workflows "
+                f"and investing deep focus into creative direction and customer relationships."
+            )
+            cta = "Save this reminder and share it with someone who needs it today."
+        elif fmt_name == "promotional_offer" or recommended_hook == "promotional":
+            hook = f"Ready to streamline your {target_topic} in {niche}?"
+            script_body = (
+                f"Stop losing hours every week to fragmented tasks.\n\n"
+                f"Our structured workflows allow teams to focus on revenue-generating strategy "
+                f"while automation handles the repetitive heavy lifting."
+            )
+            cta = "Click the link in bio to explore how to get started today."
         else:
-            hook = f"Building a scalable {niche} architecture in 2026 starts with clear systems:"
+            # educational_tips / framework
+            hook = f"The 3 core pillars behind high-performing {target_topic} in {niche}:"
+            script_body = (
+                f"Here is the proven execution model:\n"
+                f"1. Continuous research and feedback detection\n"
+                f"2. Consistent value-driven distribution\n"
+                f"3. Objective performance analysis and rapid iteration."
+            )
+            cta = "Save this framework for your team and follow for more actionable insights!"
 
-        script_body = (
-            f"Here is the proven 3-phase execution model:\n"
-            f"1. Continuous research and trend detection\n"
-            f"2. Consistent value-driven content distribution\n"
-            f"3. Objective performance analysis and iteration."
-        )
-        cta = "Save this framework for your team and share your thoughts in the comments!"
+        # Ensure variation between attempts if retry is triggered
+        if attempt > 1:
+            hook = f"[Variation {attempt}] {hook}"
+
         clean_tag = re.sub(r'[^a-zA-Z0-9]', '', niche)
-        hashtags = f"#{clean_tag} #Operations #Strategy #CreatorEconomy #Automation"
+        topic_tag = re.sub(r'[^a-zA-Z0-9]', '', target_topic)
+        hashtags = f"#{clean_tag} #{topic_tag} #Operations #Strategy #Growth"
         full_caption = f"{hook}\n\n{script_body}\n\n{cta}\n\n{hashtags}"
 
         return {
@@ -268,6 +314,7 @@ class AutonomousEngine:
             "caption": full_caption,
             "is_ai_generated": is_ai_generated,
             "source": source,
+            "format": fmt_name,
         }
 
     async def run_autonomous_cycle(
@@ -345,11 +392,15 @@ class AutonomousEngine:
         audience = active_brand.target_audience if active_brand else "Marketers & Founders"
         tone = active_brand.tone if active_brand else "informative & inspiring"
 
-        # 5. Maintain rolling content plan for next 3 days
+        # 5. Maintain rolling content plan across rolling 7 days (checking existing history for duplicates)
         new_posts: List[ScheduledPost] = []
         recommended_hook = strategy.get("recommended_hook_type", "statistic")
 
-        for day_offset in range(1, 4):
+        # Load recent 7-day post window to prevent duplicates or topic repeats
+        recent_posts = await get_recent_posts_in_window(db, workspace_id, days=7, reference_time=now)
+        existing_captions = [p["caption"] for p in recent_posts if p.get("caption")]
+
+        for day_offset in range(1, 8):
             target_date = now + timedelta(days=day_offset)
             start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
             end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -376,31 +427,82 @@ class AutonomousEngine:
                     end_quiet=cfg.quiet_hours_end,
                 )
 
-                # Synthesize complete platform-ready content via AI or grounded fallback
-                target_topic = (cfg.target_topics or ["Industry Trends"])[count % len(cfg.target_topics or ["Industry Trends"])]
-                content_payload = await self.generate_platform_content(
-                    niche=niche,
-                    audience=audience,
-                    tone=tone,
-                    target_topic=target_topic,
-                    recommended_hook=recommended_hook,
-                    day_offset=day_offset,
-                )
-                concept = content_payload["concept"]
-                hook = content_payload["hook"]
-                script_body = content_payload["script_or_body"]
-                cta = content_payload["call_to_action"]
-                hashtags = content_payload["hashtags"]
-                full_caption = content_payload["caption"]
-                is_ai_generated = content_payload["is_ai_generated"]
-                content_source = content_payload["source"]
+                # Pick distinct topic from target_topics or defaults
+                available_topics = cfg.target_topics or [
+                    "Industry Trends",
+                    "Practical Tips",
+                    "Operating Frameworks",
+                    "Common Mistakes",
+                    "Case Studies",
+                    "Tool Recommendations",
+                    "Strategic Predictions",
+                ]
+                target_topic = available_topics[(day_offset + count) % len(available_topics)]
+                format_info = pick_distinct_format_and_angle(day_offset, count)
+
+                # Uniqueness Retry Loop: Attempt up to 3 times to generate a distinct caption
+                max_retries = 3
+                unique_content_payload: Optional[Dict[str, Any]] = None
+
+                for attempt in range(1, max_retries + 1):
+                    content_payload = await self.generate_platform_content(
+                        niche=niche,
+                        audience=audience,
+                        tone=tone,
+                        target_topic=target_topic,
+                        recommended_hook=format_info["hook_style"],
+                        day_offset=day_offset,
+                        format_info=format_info,
+                        attempt=attempt,
+                    )
+                    candidate_caption = content_payload["caption"]
+                    is_dup, matched_text, sim = is_duplicate_or_near_duplicate(
+                        candidate_caption, existing_captions, threshold=0.75
+                    )
+                    if not is_dup:
+                        unique_content_payload = content_payload
+                        break
+                    log.warning(
+                        "Duplicate/near-duplicate detected on day %d (attempt %d, similarity=%.2f): %s",
+                        day_offset,
+                        attempt,
+                        sim,
+                        matched_text,
+                    )
+
+                if not unique_content_payload:
+                    log.error(
+                        "Uniqueness retry exhausted for workspace %s on day %d. Skipping duplicate.",
+                        workspace_id,
+                        day_offset,
+                    )
+                    audit = AutomationAuditLog(
+                        workspace_id=workspace_id,
+                        action="plan_generation_skipped",
+                        status="exhausted_retries",
+                        summary=f"Skipped scheduling duplicate for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} after {max_retries} attempts",
+                        details={"topic": target_topic, "day_offset": day_offset},
+                        created_at=now,
+                    )
+                    db.add(audit)
+                    count += 1
+                    continue
+
+                concept = unique_content_payload["concept"]
+                hook = unique_content_payload["hook"]
+                script_body = unique_content_payload["script_or_body"]
+                cta = unique_content_payload["call_to_action"]
+                hashtags = unique_content_payload["hashtags"]
+                full_caption = unique_content_payload["caption"]
+                is_ai_generated = unique_content_payload["is_ai_generated"]
+                content_source = unique_content_payload["source"]
 
                 # Topic-specific image generation / retrieval
                 image_res = await generate_topic_image(
                     prompt=f"{concept}: {hook}",
                     niche=niche,
                     topic=target_topic,
-                    prefer_ai=False,  # Use curated stock for autonomous batch cycles to be resilient & fast
+                    prefer_ai=False,
                 )
                 media_url = image_res["url"]
                 media_validation = self.validate_media(media_url, caption=full_caption)
@@ -414,49 +516,42 @@ class AutonomousEngine:
                     requires_approval = True
                     post_status = "pending_approval"
 
-                # Duplicate prevention: verify identical caption doesn't exist
-                dup_res = await db.execute(
-                    select(ScheduledPost).where(
-                        ScheduledPost.workspace_id == workspace_id,
-                        ScheduledPost.caption == full_caption,
-                        ScheduledPost.scheduled_time == slot_time,
-                    )
+                post = ScheduledPost(
+                    workspace_id=workspace_id,
+                    concept=concept,
+                    hook=hook,
+                    script_or_body=script_body,
+                    call_to_action=cta,
+                    caption=full_caption,
+                    image_url=media_url if media_validation["valid"] else None,
+                    scheduled_time=slot_time,
+                    status=post_status,
+                    requires_approval=requires_approval,
                 )
-                if not dup_res.scalar_one_or_none():
-                    post = ScheduledPost(
-                        workspace_id=workspace_id,
-                        concept=concept,
-                        hook=hook,
-                        script_or_body=script_body,
-                        call_to_action=cta,
-                        caption=full_caption,
-                        image_url=media_url if media_validation["valid"] else None,
-                        scheduled_time=slot_time,
-                        status=post_status,
-                        requires_approval=requires_approval,
-                    )
-                    db.add(post)
-                    new_posts.append(post)
+                db.add(post)
+                new_posts.append(post)
+                existing_captions.append(full_caption)
 
-                    # Audit log creation with content provenance
-                    audit = AutomationAuditLog(
-                        workspace_id=workspace_id,
-                        action="plan_generation",
-                        status="success" if not requires_approval else "pending_review",
-                        summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status}, source={content_source})",
-                        details={
-                            "concept": concept,
-                            "hook_type": recommended_hook,
-                            "requires_approval": requires_approval,
-                            "flagged_terms": screening.get("flagged_terms", []),
-                            "scheduled_time": slot_time.isoformat(),
-                            "is_ai_generated": is_ai_generated,
-                            "source": content_source,
-                            "media_valid": media_validation["valid"],
-                        },
-                        created_at=now,
-                    )
-                    db.add(audit)
+                # Audit log creation with content provenance
+                audit = AutomationAuditLog(
+                    workspace_id=workspace_id,
+                    action="plan_generation",
+                    status="success" if not requires_approval else "pending_review",
+                    summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status}, source={content_source}, format={format_info['format']})",
+                    details={
+                        "concept": concept,
+                        "hook_type": format_info["hook_style"],
+                        "format": format_info["format"],
+                        "requires_approval": requires_approval,
+                        "flagged_terms": screening.get("flagged_terms", []),
+                        "scheduled_time": slot_time.isoformat(),
+                        "is_ai_generated": is_ai_generated,
+                        "source": content_source,
+                        "media_valid": media_validation["valid"],
+                    },
+                    created_at=now,
+                )
+                db.add(audit)
 
                 count += 1
 
