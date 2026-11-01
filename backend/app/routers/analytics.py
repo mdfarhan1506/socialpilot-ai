@@ -12,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import deps, models
 from ..models.comment import Comment
 from ..models.content import ScheduledPost
+from ..models.meta_token import MetaToken
+from ..services.meta_insights import meta_insights
+from ..utils.security import decrypt_token
 from ..settings import settings
 
 from ..models.autonomous import PostAnalyticsObservation
@@ -81,6 +84,62 @@ async def workspace_analytics(
     avg_eng = row[2] if row and row[2] is not None else 0.0
     obs_count = row[3] if row and row[3] is not None else 0
 
+    # 4. Check for connected live Meta/Instagram account for the user
+    meta_token_res = await db.execute(
+        select(MetaToken).where(MetaToken.user_id == current_user.id)
+    )
+    token_row = meta_token_res.scalar_one_or_none()
+
+    instagram_live_data = None
+    if token_row and token_row.encrypted_token and not settings.USE_MOCK:
+        try:
+            raw_token = decrypt_token(token_row.encrypted_token)
+            instagram_live_data = await meta_insights.fetch_account_insights(
+                ig_user_id=token_row.ig_user_id or "",
+                access_token=raw_token,
+            )
+        except Exception as exc:
+            instagram_live_data = {
+                "success": False,
+                "error": f"Failed to decrypt or query Meta API: {str(exc)}",
+            }
+
+    # Decide reach display and live insight status
+    has_live_insights = (
+        instagram_live_data is not None
+        and instagram_live_data.get("success")
+        and instagram_live_data.get("insights_accessible")
+    )
+    has_live_profile = (
+        instagram_live_data is not None
+        and instagram_live_data.get("success")
+        and instagram_live_data.get("profile_accessible")
+    )
+
+    if has_live_insights:
+        live_reach = instagram_live_data.get("reach", 0)
+        reach_display = str(live_reach)
+        note = "Live account metrics and reach verified from Instagram Graph API."
+    elif has_live_profile:
+        reach_display = "0 (No 24h traffic)"
+        note = (
+            f"Instagram account (@{instagram_live_data.get('username', 'user')}) connected. "
+            f"Followers: {instagram_live_data.get('followers_count', 0)}. "
+            f"{instagram_live_data.get('error_note') or 'Account-level reach requires active audience engagement or 100+ followers.'}"
+        )
+    elif token_row and not settings.USE_MOCK:
+        reach_display = "Account Connected"
+        note = (
+            instagram_live_data.get("error_note")
+            or "Instagram account connected. Insights will update as posts receive engagement."
+        )
+    elif settings.USE_MOCK:
+        reach_display = f"[MOCK] {total_reach}"
+        note = "[MOCK] Simulated analytics active. Live metrics will be fetched from Meta Graph API when credentials are provided."
+    else:
+        reach_display = "Not Connected"
+        note = "Connect an Instagram Professional account to view live performance insights."
+
     return {
         "workspace_id": workspace_id,
         "mock_mode": settings.USE_MOCK,
@@ -91,10 +150,8 @@ async def workspace_analytics(
         "total_impressions": total_impressions,
         "average_engagement_rate": round(float(avg_eng), 2),
         "observations_count": obs_count,
-        "estimated_reach": f"[MOCK] {total_reach}" if settings.USE_MOCK else str(total_reach),
-        "note": (
-            "[MOCK] Simulated analytics active. Live metrics will be fetched from Meta Graph API when credentials are provided."
-            if settings.USE_MOCK
-            else "Live metrics ingested via Meta Graph API v19.0+ with verified provenance."
-        ),
+        "estimated_reach": reach_display,
+        "note": note,
+        "instagram_connected": bool(token_row),
+        "instagram_live_data": instagram_live_data,
     }

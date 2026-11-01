@@ -141,5 +141,141 @@ class MetaInsightsService:
                 "engagement_rate": engagement_rate,
             }
 
+    async def fetch_account_insights(
+        self,
+        ig_user_id: str,
+        access_token: str,
+    ) -> Dict[str, Any]:
+        """Fetch verified account-level metrics and permissions for an Instagram Professional account.
+
+        Queries:
+        1. Token Permissions (/me/permissions)
+        2. Account Profile details (/ig_user_id?fields=followers_count,media_count,username)
+        3. Account Insights (/ig_user_id/insights?metric=reach&period=day)
+
+        Returns:
+            Dict containing live account metrics, granted permissions, and honest diagnostics.
+        """
+        if settings.USE_MOCK or not (settings.META_APP_ID and settings.META_APP_SECRET):
+            return {
+                "success": True,
+                "mock": True,
+                "ig_user_id": ig_user_id,
+                "followers_count": 0,
+                "media_count": 0,
+                "reach": 0,
+                "granted_permissions": ["instagram_basic", "instagram_manage_insights"],
+                "missing_permissions": [],
+                "insights_accessible": True,
+            }
+
+        if not ig_user_id or ig_user_id == "MOCK_IG_USER_ID":
+            return {
+                "success": False,
+                "mock": False,
+                "error": "No valid Instagram Professional Account ID connected.",
+                "insights_accessible": False,
+            }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            granted_perms: list[str] = []
+            missing_perms: list[str] = []
+
+            # 1. Check granted token permissions
+            try:
+                perm_resp = await client.get(
+                    f"{GRAPH_BASE}/me/permissions",
+                    params={"access_token": access_token},
+                )
+                if perm_resp.status_code == 200:
+                    perm_data = perm_resp.json().get("data", [])
+                    for p in perm_data:
+                        if p.get("status") == "granted":
+                            granted_perms.append(p.get("permission", ""))
+            except Exception as e:
+                log.warning("Failed to fetch token permissions: %s", e)
+
+            # Determine required permissions
+            for req in ("instagram_basic", "instagram_manage_insights"):
+                if req not in granted_perms:
+                    missing_perms.append(req)
+
+            # 2. Fetch basic profile counters (followers, media count)
+            followers_count = 0
+            media_count = 0
+            username = ""
+            profile_accessible = False
+
+            try:
+                prof_resp = await client.get(
+                    f"{GRAPH_BASE}/{ig_user_id}",
+                    params={
+                        "fields": "id,username,followers_count,follows_count,media_count",
+                        "access_token": access_token,
+                    },
+                )
+                if prof_resp.status_code == 200:
+                    prof_data = prof_resp.json()
+                    followers_count = int(prof_data.get("followers_count", 0))
+                    media_count = int(prof_data.get("media_count", 0))
+                    username = prof_data.get("username", "")
+                    profile_accessible = True
+                else:
+                    log.warning("Failed to fetch profile for IG user %s: %s", ig_user_id, prof_resp.text)
+            except Exception as e:
+                log.warning("Profile request error for IG user %s: %s", ig_user_id, e)
+
+            # 3. Query account reach insights if permitted
+            reach = 0
+            insights_accessible = False
+            error_note = None
+
+            try:
+                insights_resp = await client.get(
+                    f"{GRAPH_BASE}/{ig_user_id}/insights",
+                    params={
+                        "metric": "reach",
+                        "period": "day",
+                        "access_token": access_token,
+                    },
+                )
+                if insights_resp.status_code == 200:
+                    insights_data = insights_resp.json().get("data", [])
+                    for item in insights_data:
+                        if item.get("name") == "reach":
+                            values = item.get("values", [])
+                            if values:
+                                reach = int(values[-1].get("value", 0))
+                    insights_accessible = True
+                else:
+                    err_json = insights_resp.json().get("error", {})
+                    err_msg = err_json.get("message", insights_resp.text)
+                    err_code = err_json.get("code")
+                    log.info("Account insights unavailable (code %s): %s", err_code, err_msg)
+                    if err_code == 100:
+                        error_note = f"Insights require Instagram Professional Account with active traffic and permission."
+                    elif err_code == 190:
+                        error_note = "Session or access token expired. Re-linking required."
+                    else:
+                        error_note = err_msg
+            except Exception as e:
+                log.warning("Account insights request error: %s", e)
+                error_note = str(e)
+
+            return {
+                "success": True,
+                "mock": False,
+                "ig_user_id": ig_user_id,
+                "username": username,
+                "followers_count": followers_count,
+                "media_count": media_count,
+                "reach": reach,
+                "profile_accessible": profile_accessible,
+                "insights_accessible": insights_accessible,
+                "granted_permissions": granted_perms,
+                "missing_permissions": missing_perms,
+                "error_note": error_note,
+            }
+
 
 meta_insights = MetaInsightsService()

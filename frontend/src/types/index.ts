@@ -55,6 +55,21 @@ export interface AnalyticsData {
   total_comments: number;
   estimated_reach: string;
   note: string;
+  instagram_connected?: boolean;
+  instagram_live_data?: {
+    success: boolean;
+    mock: boolean;
+    ig_user_id?: string;
+    username?: string;
+    followers_count?: number;
+    media_count?: number;
+    reach?: number;
+    profile_accessible?: boolean;
+    insights_accessible?: boolean;
+    granted_permissions?: string[];
+    missing_permissions?: string[];
+    error_note?: string | null;
+  } | null;
 }
 
 export interface AppConfig {

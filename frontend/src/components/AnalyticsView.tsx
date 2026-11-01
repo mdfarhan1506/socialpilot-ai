@@ -23,24 +23,32 @@ export default function AnalyticsView({
         </p>
       </div>
 
-      {/* Honest Mock Notice */}
+      {/* Provenance & Status Notice */}
       <div
         className="card"
         style={{
           marginBottom: '2rem',
-          backgroundColor: 'rgba(245, 158, 11, 0.08)',
-          border: '1px solid rgba(245, 158, 11, 0.25)',
+          backgroundColor: analytics?.instagram_connected && !analytics?.mock_mode ? 'rgba(16, 185, 129, 0.08)' : 'rgba(245, 158, 11, 0.08)',
+          border: `1px solid ${analytics?.instagram_connected && !analytics?.mock_mode ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)'}`,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
-          <span>📊</span>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#fbbf24' }}>
-            [MOCK DATA NOTICE] Real Database Counts + Simulated Reach
+          <span>{analytics?.instagram_connected && !analytics?.mock_mode ? '🟢' : '📊'}</span>
+          <h3
+            style={{
+              fontSize: '1rem',
+              fontWeight: 700,
+              color: analytics?.instagram_connected && !analytics?.mock_mode ? 'var(--success)' : '#fbbf24',
+            }}
+          >
+            {analytics?.instagram_connected && !analytics?.mock_mode
+              ? 'Instagram Live Connection Active'
+              : '[MOCK DATA NOTICE] Real Database Counts + Simulated Reach'}
           </h3>
         </div>
         <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
           {analytics?.note ||
-            'Analytics display real counts of your scheduled posts and comments from the database. Real reach, impression, and follower analytics require Meta Graph API Insights with pages_read_engagement permissions.'}
+            'Analytics display real counts of your scheduled posts and comments from the database.'}
         </p>
       </div>
 
@@ -67,29 +75,49 @@ export default function AnalyticsView({
         <div className="stat-card">
           <div className="stat-icon">👁️</div>
           <div className="stat-info">
-            <div className="stat-label">Estimated Reach</div>
+            <div className="stat-label">
+              {analytics?.instagram_connected && !analytics?.mock_mode ? 'Account Reach (24h)' : 'Estimated Reach'}
+            </div>
             <div className="stat-value" style={{ fontSize: '1.4rem' }}>
-              {analytics?.estimated_reach || '[MOCK] 0'}
+              {analytics?.estimated_reach || (analytics?.mock_mode ? '[MOCK] 0' : '0')}
             </div>
             <div className="stat-hint">
-              <span className="mode-badge mock" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
-                Mock
-              </span>{' '}
-              Simulated reach
+              {analytics?.instagram_connected && !analytics?.mock_mode ? (
+                <span className="mode-badge live" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
+                  Live API
+                </span>
+              ) : (
+                <span className="mode-badge mock" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
+                  Mock
+                </span>
+              )}{' '}
+              {analytics?.instagram_connected && !analytics?.mock_mode
+                ? 'Instagram Graph API'
+                : 'Simulated reach'}
             </div>
           </div>
         </div>
 
         <div className="stat-card">
-          <div className="stat-icon">🔥</div>
+          <div className="stat-icon">👥</div>
           <div className="stat-info">
-            <div className="stat-label">Avg Engagement Rate</div>
-            <div className="stat-value">4.8%</div>
+            <div className="stat-label">Instagram Followers</div>
+            <div className="stat-value">
+              {analytics?.instagram_live_data?.profile_accessible
+                ? analytics.instagram_live_data.followers_count ?? 0
+                : (analytics?.mock_mode ? '[MOCK] 0' : 'Not Connected')}
+            </div>
             <div className="stat-hint">
-              <span className="mode-badge mock" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
-                Mock
-              </span>{' '}
-              Industry benchmark
+              {analytics?.instagram_live_data?.profile_accessible ? (
+                <span className="mode-badge live" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
+                  Verified
+                </span>
+              ) : (
+                <span className="mode-badge mock" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
+                  Mock
+                </span>
+              )}{' '}
+              {analytics?.instagram_live_data?.username ? `@${analytics.instagram_live_data.username}` : 'Instagram Profile'}
             </div>
           </div>
         </div>
@@ -168,8 +196,8 @@ export default function AnalyticsView({
 
         {/* Live Meta Graph Integration Roadmap */}
         <div className="card">
-          <h3 className="card-title">🔌 Live Meta Insights Integration</h3>
-          <p className="card-subtitle">Connecting real metrics from Instagram</p>
+          <h3 className="card-title">🔌 Live Meta Insights Status</h3>
+          <p className="card-subtitle">Real-time connection to Instagram Graph API</p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', fontSize: '0.85rem' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
@@ -177,27 +205,35 @@ export default function AnalyticsView({
               <div>
                 <strong>Local Queue Analytics</strong>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  Real-time database aggregation for posts, schedules, and comments.
+                  Real-time database aggregation for schedules and user comments.
                 </p>
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-              <span style={{ fontSize: '1.1rem' }}>🔒</span>
+              <span style={{ fontSize: '1.1rem' }}>
+                {analytics?.instagram_connected ? '✅' : '🔒'}
+              </span>
+              <div>
+                <strong>Instagram Account Connection</strong>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                  {analytics?.instagram_connected
+                    ? `Account ID: ${analytics.instagram_live_data?.ig_user_id || 'Connected'} • Encrypted Token Active`
+                    : 'Requires connecting your Instagram Professional account.'}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+              <span style={{ fontSize: '1.1rem' }}>
+                {analytics?.instagram_live_data?.insights_accessible ? '✅' : '📊'}
+              </span>
               <div>
                 <strong>Meta Graph API Insights</strong>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  Requires verified Facebook App with <code>pages_read_engagement</code> and <code>instagram_basic</code>.
-                </p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-              <span style={{ fontSize: '1.1rem' }}>📈</span>
-              <div>
-                <strong>Reels & Story Impressions</strong>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  Tracks reach, retention, and viewer drop-off directly from Instagram CDN.
+                  {analytics?.instagram_live_data?.insights_accessible
+                    ? '24-hour reach metrics actively retrieved from Meta CDN.'
+                    : (analytics?.instagram_live_data?.error_note || 'Active performance metrics display once posts receive views and engagement.')}
                 </p>
               </div>
             </div>
