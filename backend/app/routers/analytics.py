@@ -24,7 +24,7 @@ router = APIRouter()
 
 async def _check_workspace_member(
     db: AsyncSession, user: models.User, workspace_id: uuid.UUID,
-) -> None:
+) -> models.Workspace:
     ws_result = await db.execute(
         select(models.Workspace).where(models.Workspace.id == workspace_id)
     )
@@ -32,7 +32,7 @@ async def _check_workspace_member(
     if not ws:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     if ws.owner_id == user.id:
-        return
+        return ws
     mem_result = await db.execute(
         select(models.WorkspaceMembership).where(
             models.WorkspaceMembership.workspace_id == workspace_id,
@@ -41,6 +41,7 @@ async def _check_workspace_member(
     )
     if not mem_result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized for this workspace")
+    return ws
 
 
 @router.get("/")
@@ -51,7 +52,7 @@ async def workspace_analytics(
 ):
     """Return aggregated metrics for the workspace with verified provenance."""
     ws_uuid = uuid.UUID(workspace_id)
-    await _check_workspace_member(db, current_user, ws_uuid)
+    ws = await _check_workspace_member(db, current_user, ws_uuid)
 
     sched_result = await db.execute(
         select(func.count()).select_from(ScheduledPost).where(
@@ -84,11 +85,13 @@ async def workspace_analytics(
     avg_eng = row[2] if row and row[2] is not None else 0.0
     obs_count = row[3] if row and row[3] is not None else 0
 
-    # 4. Check for connected live Meta/Instagram account for the user
+    # 4. Check for connected live Meta/Instagram account for the user or workspace owner
     meta_token_res = await db.execute(
-        select(MetaToken).where(MetaToken.user_id == current_user.id)
+        select(MetaToken).where(
+            (MetaToken.user_id == current_user.id) | (MetaToken.user_id == ws.owner_id)
+        ).order_by(MetaToken.updated_at.desc())
     )
-    token_row = meta_token_res.scalar_one_or_none()
+    token_row = meta_token_res.scalars().first()
 
     instagram_live_data = None
     if token_row and token_row.encrypted_token and not settings.USE_MOCK:
@@ -98,6 +101,14 @@ async def workspace_analytics(
                 ig_user_id=token_row.ig_user_id or "",
                 access_token=raw_token,
             )
+            # If dynamic resolution discovered the real ig_user_id, persist it to DB
+            if (
+                instagram_live_data
+                and instagram_live_data.get("ig_user_id")
+                and instagram_live_data.get("ig_user_id") != token_row.ig_user_id
+            ):
+                token_row.ig_user_id = instagram_live_data.get("ig_user_id")
+                await db.commit()
         except Exception as exc:
             instagram_live_data = {
                 "success": False,

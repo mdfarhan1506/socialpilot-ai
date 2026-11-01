@@ -105,19 +105,27 @@ export default function AnalyticsView({
             <div className="stat-value">
               {analytics?.instagram_live_data?.profile_accessible
                 ? analytics.instagram_live_data.followers_count ?? 0
-                : (analytics?.mock_mode ? '[MOCK] 0' : 'Not Connected')}
+                : (analytics?.instagram_connected ? 'Connected' : (analytics?.mock_mode ? '[MOCK] 0' : 'Not Connected'))}
             </div>
             <div className="stat-hint">
               {analytics?.instagram_live_data?.profile_accessible ? (
                 <span className="mode-badge live" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
                   Verified
                 </span>
+              ) : analytics?.instagram_connected ? (
+                <span className="mode-badge live" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
+                  Linked
+                </span>
               ) : (
                 <span className="mode-badge mock" style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem' }}>
                   Mock
                 </span>
               )}{' '}
-              {analytics?.instagram_live_data?.username ? `@${analytics.instagram_live_data.username}` : 'Instagram Profile'}
+              {analytics?.instagram_live_data?.username
+                ? `@${analytics.instagram_live_data.username}`
+                : analytics?.instagram_connected
+                ? 'Account Active'
+                : 'Instagram Profile'}
             </div>
           </div>
         </div>

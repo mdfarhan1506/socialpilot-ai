@@ -170,6 +170,16 @@ class MetaInsightsService:
             }
 
         if not ig_user_id or ig_user_id == "MOCK_IG_USER_ID":
+            # Attempt dynamic account ID resolution using access token
+            try:
+                from . import meta_oauth
+                resolved_id = await meta_oauth.get_instagram_user_id(access_token)
+                if resolved_id and resolved_id != "MOCK_IG_USER_ID":
+                    ig_user_id = resolved_id
+            except Exception as e:
+                log.warning("Could not dynamically resolve Instagram user ID: %s", e)
+
+        if not ig_user_id or ig_user_id == "MOCK_IG_USER_ID":
             return {
                 "success": False,
                 "mock": False,
