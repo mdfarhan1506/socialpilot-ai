@@ -18,6 +18,25 @@ export default function SocialAccountsView({
   onToast,
 }: SocialAccountsViewProps) {
   const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  async function handleDisconnect() {
+    const confirmed = window.confirm(
+      'Are you sure you want to disconnect your Instagram account? This will remove the stored access token, but your scheduled posts, workspaces, and analytics data will be preserved.'
+    );
+    if (!confirmed) return;
+
+    setDisconnecting(true);
+    try {
+      await api.disconnectMeta();
+      onToast('✅ Instagram account disconnected successfully.', 'success');
+      onRefreshStatus();
+    } catch (err: any) {
+      onToast(err.message || 'Failed to disconnect Instagram account', 'error');
+    } finally {
+      setDisconnecting(false);
+    }
+  }
 
   async function handleMockConnect() {
     setConnecting(true);
@@ -148,9 +167,27 @@ export default function SocialAccountsView({
                 className="btn btn-secondary"
                 style={{ flex: 1 }}
                 onClick={handleMockConnect}
-                disabled={connecting}
+                disabled={connecting || disconnecting}
               >
                 {connecting ? 'Refreshing...' : '🔄 Re-link Account'}
+              </button>
+              <button
+                className="btn btn-danger"
+                style={{
+                  flex: 1,
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  cursor: disconnecting ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                  padding: '0.6rem 1rem',
+                  borderRadius: 'var(--radius-md, 8px)',
+                  transition: 'all 0.2s ease',
+                }}
+                onClick={handleDisconnect}
+                disabled={connecting || disconnecting}
+              >
+                {disconnecting ? 'Disconnecting...' : 'Disconnect Instagram'}
               </button>
             </div>
           ) : (

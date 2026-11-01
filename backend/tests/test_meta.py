@@ -154,6 +154,29 @@ class TestMetaPublish(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 401)
 
+    def test_disconnect_meta(self):
+        """Test disconnecting an active Instagram connection and verifying status."""
+        user_headers = get_auth_headers("meta_disc_test@test.com")
+        start_resp = client.get("/meta/oauth/start", headers=user_headers)
+        state = start_resp.json()["state"]
+        client.get(f"/meta/oauth/callback?code=fake_code&state={state}", follow_redirects=False)
+
+        # Confirm connected
+        status_resp = client.get("/meta/status", headers=user_headers)
+        self.assertTrue(status_resp.json()["connected"])
+
+        # Disconnect
+        disc_resp = client.delete("/meta/disconnect", headers=user_headers)
+        self.assertEqual(disc_resp.status_code, 200)
+
+        # Confirm disconnected
+        status_resp2 = client.get("/meta/status", headers=user_headers)
+        self.assertFalse(status_resp2.json()["connected"])
+
+        # Disconnecting again when not connected returns 404
+        disc_resp2 = client.delete("/meta/disconnect", headers=user_headers)
+        self.assertEqual(disc_resp2.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

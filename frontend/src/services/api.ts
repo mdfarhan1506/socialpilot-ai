@@ -256,6 +256,14 @@ export const api = {
     return handleResponse<any>(res);
   },
 
+  async disconnectMeta(): Promise<{ detail: string }> {
+    const res = await apiFetch(`${API_BASE}/meta/disconnect`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeader() },
+    });
+    return handleResponse<{ detail: string }>(res);
+  },
+
   async publishPost(data: { image_url: string; caption: string }): Promise<any> {
     const res = await apiFetch(`${API_BASE}/meta/publish`, {
       method: 'POST',

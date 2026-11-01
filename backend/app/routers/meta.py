@@ -70,6 +70,31 @@ async def meta_status(
     }
 
 
+@router.delete("/disconnect")
+async def meta_disconnect(
+    current_user: models.User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """Remove stored Instagram connection & token for current user.
+    Does not delete user, workspace, or scheduled posts.
+    """
+    result = await db.execute(
+        select(MetaToken).where(MetaToken.user_id == current_user.id)
+    )
+    token_row = result.scalar_one_or_none()
+    if not token_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No Instagram connection found to disconnect.",
+        )
+    await db.delete(token_row)
+    await db.commit()
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"detail": "Instagram account disconnected successfully."},
+    )
+
+
 @router.get("/oauth/start")
 async def oauth_start(
     current_user: models.User = Depends(deps.get_current_user),
