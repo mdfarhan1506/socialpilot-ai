@@ -20,6 +20,7 @@ from ..models.content import ScheduledPost, PublishedPost
 from ..models.meta_token import MetaToken
 from ..services.learning_engine import learning_engine
 from ..services.provider_factory import get_ai_provider
+from ..services.image_service import generate_topic_image
 from ..settings import settings
 
 log = logging.getLogger(__name__)
@@ -394,7 +395,14 @@ class AutonomousEngine:
                 is_ai_generated = content_payload["is_ai_generated"]
                 content_source = content_payload["source"]
 
-                media_url = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80"
+                # Topic-specific image generation / retrieval
+                image_res = await generate_topic_image(
+                    prompt=f"{concept}: {hook}",
+                    niche=niche,
+                    topic=target_topic,
+                    prefer_ai=False,  # Use curated stock for autonomous batch cycles to be resilient & fast
+                )
+                media_url = image_res["url"]
                 media_validation = self.validate_media(media_url, caption=full_caption)
 
                 # Content policy screening

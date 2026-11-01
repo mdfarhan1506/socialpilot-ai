@@ -42,8 +42,20 @@ export default function ContentStudioView({
   const [platform, setPlatform] = useState('instagram');
   const [caption, setCaption] = useState(initialCaption);
   const [imageUrl, setImageUrl] = useState(
-    'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80'
+    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&auto=format&fit=crop&q=80'
   );
+  const [imageMeta, setImageMeta] = useState<{
+    source?: string;
+    isAi?: boolean;
+    provider?: string;
+    category?: string;
+  }>({
+    source: 'stock_library',
+    isAi: false,
+    provider: 'unsplash_curated',
+    category: 'tech',
+  });
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
   // Schedule Modal
   const [showScheduleModal, setShowScheduleModal] = useState(Boolean(initialDate));
@@ -94,9 +106,41 @@ export default function ContentStudioView({
   }
 
   // Apply idea to editor
-  function applyIdea(idea: ContentIdea) {
+  async function applyIdea(idea: ContentIdea) {
     setCaption(`${idea.title}\n\n${idea.caption}`);
     onToast('Idea loaded into caption editor', 'info');
+    // Automatically retrieve/generate topic-specific image matching the idea
+    await handleRegenerateImage(idea.title);
+  }
+
+  // Handle Regenerate Image
+  async function handleRegenerateImage(customPrompt?: string) {
+    const promptText = customPrompt || caption.slice(0, 100) || niche;
+    setIsGeneratingImage(true);
+    try {
+      const res = await api.generateImage({
+        prompt: promptText,
+        niche: niche,
+        topic: promptText,
+        prefer_ai: !config?.mock_mode && config?.openai_configured,
+      });
+      setImageUrl(res.url);
+      setImageMeta({
+        source: res.source,
+        isAi: Boolean(res.metadata?.is_ai_generated),
+        provider: res.metadata?.provider || res.source,
+        category: res.category,
+      });
+      if (res.metadata?.is_ai_generated) {
+        onToast('🎨 Generated new AI visual for topic via DALL-E 3!', 'success');
+      } else {
+        onToast(`🖼️ Selected verified topic stock image (${res.category})`, 'info');
+      }
+    } catch (err: any) {
+      onToast(err.message || 'Image generation failed', 'error');
+    } finally {
+      setIsGeneratingImage(false);
+    }
   }
 
   // Quick Hashtag click
@@ -402,7 +446,18 @@ export default function ContentStudioView({
             </div>
 
             <div className="form-group">
-              <label className="form-label">Image URL</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <label className="form-label" style={{ margin: 0 }}>Image Media</label>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  disabled={isGeneratingImage}
+                  onClick={() => handleRegenerateImage()}
+                  style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem' }}
+                >
+                  {isGeneratingImage ? '🔄 Generating Visual...' : '🎨 Regenerate Image'}
+                </button>
+              </div>
               <input
                 type="url"
                 className="form-input"
@@ -410,6 +465,12 @@ export default function ContentStudioView({
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
               />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.35rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                <span>
+                  Source: <strong>{imageMeta.isAi ? 'OpenAI DALL-E 3 (AI)' : 'Verified Topic Stock'}</strong>
+                </span>
+                <span>Category: {imageMeta.category || 'General'}</span>
+              </div>
             </div>
 
             {/* Action Buttons */}

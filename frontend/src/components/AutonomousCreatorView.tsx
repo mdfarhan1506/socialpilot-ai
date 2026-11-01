@@ -414,9 +414,22 @@ export default function AutonomousCreatorView({
                   </div>
                 )}
 
+                {post.image_url && (
+                  <div style={{ marginBottom: '0.75rem', borderRadius: 'var(--radius-sm)', overflow: 'hidden', height: '140px', backgroundColor: '#111' }}>
+                    <img
+                      src={post.image_url}
+                      alt={post.concept || 'Plan visual'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+
                 <div style={{ marginTop: 'auto', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {post.image_url ? '🖼️ Media Validated' : '📝 Text Asset'}
+                    {post.image_url ? '🖼️ Visual Attached' : '📝 Text Asset'}
                   </span>
 
                   {post.requires_approval && (

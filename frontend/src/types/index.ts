@@ -143,3 +143,13 @@ export interface AutonomousPlanPost {
   requires_approval: boolean;
   approved_at?: string | null;
 }
+
+export interface GeneratedImageResult {
+  url: string;
+  source: string;
+  category: string;
+  metadata: Record<string, any>;
+  mock_mode?: boolean;
+  fallback_reason?: string | null;
+}
+

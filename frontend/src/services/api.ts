@@ -12,6 +12,7 @@ import {
   StrategyInsight,
   AutomationAuditLog,
   AutonomousPlanPost,
+  GeneratedImageResult,
 } from '../types';
 
 function getApiBase(): string {
@@ -199,6 +200,23 @@ export const api = {
       body: JSON.stringify(data),
     });
     return handleResponse<{ ideas: ContentIdea[]; source: string; mock_mode: boolean }>(res);
+  },
+
+  async generateImage(data: {
+    prompt: string;
+    niche?: string;
+    topic?: string;
+    prefer_ai?: boolean;
+  }): Promise<GeneratedImageResult> {
+    const res = await apiFetch(`${API_BASE}/content/generate-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify(data),
+    });
+    return handleResponse<GeneratedImageResult>(res);
   },
 
   // Scheduling
