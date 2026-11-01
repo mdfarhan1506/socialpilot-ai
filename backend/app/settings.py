@@ -78,4 +78,11 @@ class Settings(BaseSettings):
         if os.getenv("USE_MOCK") is None:
             self.USE_MOCK = not bool(self.OPENAI_API_KEY)
 
+
 settings = Settings()
+
+# Expose settings attributes for legacy compatibility and testing
+USE_MOCK = settings.USE_MOCK
+META_APP_ID = settings.META_APP_ID
+META_APP_SECRET = settings.META_APP_SECRET
+

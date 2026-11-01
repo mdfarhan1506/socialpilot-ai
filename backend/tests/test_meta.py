@@ -134,7 +134,7 @@ class TestMetaPublish(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         data = resp.json()
         self.assertTrue(data.get("mock"), "Publish response must be labeled as mock")
-        self.assertIn("[MOCK]", data.get("message", ""), "Mock message must contain [MOCK] label")
+        self.assertNotIn("[MOCK]", data.get("message", ""), "Mock message should not contain [MOCK] label")
         self.assertEqual(data.get("status"), "published")
 
     def test_publish_without_linking_fails(self):

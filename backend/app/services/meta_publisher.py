@@ -57,14 +57,23 @@ async def publish_image(
     Returns a dict with keys: creation_id, publish_id, status, mock.
     Raises RuntimeError on API failure.
     """
-    if settings.USE_MOCK or not (settings.META_APP_ID and settings.META_APP_SECRET):
+    if settings.USE_MOCK:
+        # In mock mode we do not hit the real Meta API. Return a clear simulated response.
         return {
             "creation_id": "MOCK_CREATION_ID",
             "publish_id": "MOCK_PUBLISH_ID",
             "status": "published",
             "mock": True,
-            "message": "[MOCK] Post published successfully (no real API call made)",
+            # Message intentionally does NOT contain a "[MOCK]" marker – it is displayed only in UI as a simulated result.
+            "message": "Post simulated successfully (mock mode). No real API call was made.",
         }
+        # If real mode but Meta credentials are missing, abort with a helpful error.
+    if not (settings.META_APP_ID and settings.META_APP_SECRET):
+        raise RuntimeError("Meta publishing is unavailable: META_APP_ID and/or META_APP_SECRET are not configured.")
+
+    # Safety check: never publish a caption that still contains a mock placeholder.
+    if "[MOCK]" in caption:
+        raise RuntimeError("Caption contains mock placeholder '[MOCK]'; cannot publish in real mode.")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Step 1 – create container
