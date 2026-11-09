@@ -229,7 +229,13 @@ export default function AutonomousCreatorView({
               <h3 className="card-title" style={{ margin: 0 }}>Active Strategy & Learned Hypotheses</h3>
             </div>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Data Provenance: {config?.mock_mode ? 'Simulated' : (config?.openai_configured ? 'Live (OpenAI configured)' : 'No live data yet — AI not configured')}
+              {(() => {
+                if (config?.mock_mode) return 'Data Provenance: Simulated';
+                const liveInsights = insights.filter(i => !i.is_mock);
+                if (liveInsights.length >= 5) return '✅ Data Provenance: Verified Live';
+                if (liveInsights.length > 0) return `⚠️ Provenance: ${liveInsights.length} live observation(s) — need 5+`;
+                return '⚠️ No live data yet — publish posts and collect analytics first';
+              })()}
             </span>
           </div>
 

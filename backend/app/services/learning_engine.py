@@ -177,23 +177,38 @@ class LearningEngine:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         if not is_mock and not data:
-            # LIVE MODE with zero live observations yet
-            baseline_insight = StrategyInsight(
-                workspace_id=workspace_id,
-                topic="Audience Baseline Learning",
-                hook_type="framework",
-                format_type="single_image",
-                best_time_slot="14:00 UTC",
-                performance_score=0.0,
-                hypothesis="Awaiting real audience engagement data from Meta Insights API.",
-                recommendation="Maintain standard publishing cadence until initial live metrics are ingested.",
-                confidence_score=0.0,
-                is_mock=False,
-                evidence_data={"samples": 0, "status": "awaiting_live_data"},
-                created_at=now,
+            # LIVE MODE with zero live observations yet.
+            # UPSERT: check for an existing baseline row to avoid duplicates.
+            existing_baseline_res = await db.execute(
+                select(StrategyInsight).where(
+                    StrategyInsight.workspace_id == workspace_id,
+                    StrategyInsight.topic == "Audience Baseline Learning",
+                )
             )
-            db.add(baseline_insight)
-            insights.append(baseline_insight)
+            existing_baseline = existing_baseline_res.scalar_one_or_none()
+
+            if existing_baseline:
+                # Update the existing row rather than inserting a duplicate.
+                existing_baseline.evidence_data = {"samples": 0, "status": "awaiting_live_data"}
+                existing_baseline.updated_at = now
+                insights.append(existing_baseline)
+            else:
+                baseline_insight = StrategyInsight(
+                    workspace_id=workspace_id,
+                    topic="Audience Baseline Learning",
+                    hook_type="framework",
+                    format_type="single_image",
+                    best_time_slot="14:00 UTC",
+                    performance_score=0.0,
+                    hypothesis="Awaiting real audience engagement data from Meta Insights API.",
+                    recommendation="Maintain standard publishing cadence until initial live metrics are ingested.",
+                    confidence_score=0.0,
+                    is_mock=False,
+                    evidence_data={"samples": 0, "status": "awaiting_live_data"},
+                    created_at=now,
+                )
+                db.add(baseline_insight)
+                insights.append(baseline_insight)
 
             audit = AutomationAuditLog(
                 workspace_id=workspace_id,
