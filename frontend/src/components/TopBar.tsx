@@ -10,6 +10,7 @@ interface TopBarProps {
   onOpenCreateWorkspace: () => void;
   config: AppConfig | null;
   onOpenNewPost: () => void;
+  metaStatus?: { connected?: boolean; is_expired?: boolean } | null;
 }
 
 export default function TopBar({
@@ -19,7 +20,16 @@ export default function TopBar({
   onOpenCreateWorkspace,
   config,
   onOpenNewPost,
+  metaStatus,
 }: TopBarProps) {
+  // LIVE MODE = openai_configured AND meta token valid AND NOT mock_mode
+  const metaTokenValid = Boolean(metaStatus?.connected && !metaStatus?.is_expired);
+  const isFullyLive = !config?.mock_mode && config?.openai_configured && metaTokenValid;
+  const setupIssues: string[] = [];
+  if (config && !config.mock_mode) {
+    if (!config.openai_configured) setupIssues.push('AI key missing');
+    if (!metaTokenValid) setupIssues.push('Instagram not connected');
+  }
   return (
     <header className="top-bar">
       <div className="top-bar-left">
@@ -59,15 +69,23 @@ export default function TopBar({
       <div className="top-bar-right">
         {config && (
           <div
-            className={`mode-badge ${config.mock_mode ? 'mock' : 'live'}`}
+            className={`mode-badge ${config.mock_mode ? 'mock' : (isFullyLive ? 'live' : 'mock')}`}
             title={
               config.mock_mode
-                ? 'Mock Mode: Real external API calls to OpenAI and Meta are simulated. Safe for offline development.'
-                : 'Live Mode: Connected to real OpenAI and Meta Instagram APIs.'
+                ? 'Mock Mode: Real API calls are simulated.'
+                : isFullyLive
+                  ? 'Live Mode: Connected to real OpenAI and Meta Instagram APIs.'
+                  : `Setup Incomplete: ${setupIssues.join(', ')}`
             }
           >
-            <span>{config.mock_mode ? '🟡' : '🟢'}</span>
-            <span>{config.mode_label}</span>
+            <span>{config.mock_mode ? '🟡' : (isFullyLive ? '🟢' : '🟠')}</span>
+            <span>
+              {config.mock_mode
+                ? config.mode_label
+                : isFullyLive
+                  ? 'Live Mode'
+                  : `Setup Incomplete`}
+            </span>
           </div>
         )}
 

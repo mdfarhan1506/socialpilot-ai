@@ -79,6 +79,8 @@ export interface AppConfig {
   mock_instagram: boolean;
   mode_label: string;
   ai_unavailable_reason?: string | null;
+  /** null = unknown (unauthenticated endpoint); use metaStatus.connected for per-user truth */
+  meta_token_valid?: boolean | null;
 }
 
 export interface MetaStatus {

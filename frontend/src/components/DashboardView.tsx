@@ -122,10 +122,16 @@ export default function DashboardView({
               {analytics?.instagram_connected && !config?.mock_mode ? 'Account Reach (24h)' : 'Estimated Reach'}
             </div>
             <div className="stat-value" style={{ fontSize: '1.3rem' }}>
-              {analytics?.estimated_reach || (config?.mock_mode ? '[MOCK] 0' : '0')}
+              {analytics?.estimated_reach != null && analytics.estimated_reach !== '' && analytics.estimated_reach !== 0
+                ? analytics.estimated_reach
+                : 'No data yet'}
             </div>
             <div className="stat-hint">
-              {analytics?.instagram_connected && !config?.mock_mode ? 'Instagram Live API' : (config?.mock_mode ? 'Mock simulated reach' : 'Meta Graph Analytics')}
+              {analytics?.instagram_connected && !config?.mock_mode
+                ? 'Live from Meta Graph API'
+                : config?.mock_mode
+                  ? 'Simulated reach (mock mode)'
+                  : 'Connect Instagram to see live reach'}
             </div>
           </div>
         </div>

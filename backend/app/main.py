@@ -93,4 +93,7 @@ async def config():
         "mock_instagram": settings.MOCK_INSTAGRAM,
         "mode_label": "Mock Mode" if settings.USE_MOCK else "Live Mode",
         "ai_unavailable_reason": ai_unavailable_reason,
+        # meta_token_valid is per-user; check GET /meta/status (authenticated) for the user's
+        # actual token validity. This field is null here because /config is unauthenticated.
+        "meta_token_valid": None,
     }

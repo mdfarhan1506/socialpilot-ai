@@ -302,6 +302,7 @@ export default function Home() {
           onSelectWorkspace={setCurrentWorkspace}
           onOpenCreateWorkspace={() => setCreateWorkspaceModalOpen(true)}
           config={config}
+          metaStatus={metaStatus}
           onOpenNewPost={() => {
             setStudioInitialCaption('');
             setStudioInitialDate(undefined);
