@@ -95,7 +95,7 @@ jobs:
           alembic -c alembic.ini upgrade head
           echo "✅ All migrations applied successfully"
 
-      - name: Verify tables via Python
+      - name: Verify tables and trend_opportunities columns via Python
         env:
           DATABASE_URL: "sqlite+aiosqlite:///./ci_migration_test.db"
         run: |
@@ -104,9 +104,16 @@ jobs:
           conn = sqlite3.connect('ci_migration_test.db')
           tables = [r[0] for r in conn.execute(\"SELECT name FROM sqlite_master WHERE type='table'\").fetchall()]
           print(f'Tables created: {tables}')
-          required = ['users', 'workspaces', 'scheduled_posts', 'published_posts', 'brand_profiles']
+          required = ['users', 'workspaces', 'scheduled_posts', 'published_posts', 'brand_profiles',
+                      'trend_opportunities', 'autonomous_configs', 'strategy_insights']
           missing = [t for t in required if t not in tables]
           if missing:
               raise SystemExit(f'Missing tables: {missing}')
+          cols = {r[1] for r in conn.execute(\"PRAGMA table_info(trend_opportunities)\").fetchall()}
+          required_cols = {'source_name', 'publication_date', 'retrieved_at', 'is_evergreen', 'trend_metadata'}
+          missing_cols = required_cols - cols
+          if missing_cols:
+              raise SystemExit(f'trend_opportunities missing columns after migration: {missing_cols}')
           print('✅ All required tables present')
+          print('✅ trend_opportunities columns verified:', sorted(cols))
           "
