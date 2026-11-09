@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import deps, models
 from ..models.content import ScheduledPost
 from ..services.content_uniqueness import is_duplicate_or_near_duplicate, get_recent_posts_in_window
+from ..services.publish_validator import validate_caption, validate_image_url
+from ..services.adaptive_scheduler import recommend_posting_times
 
 router = APIRouter()
 
@@ -80,6 +82,22 @@ async def create_schedule(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="scheduled_time must be in the future",
         )
+
+    # Phase 8: Pre-publish validation on caption and image URL
+    cap_val = validate_caption(req.caption)
+    if not cap_val.passed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Caption validation failed: {'; '.join(cap_val.failures)}",
+        )
+
+    if req.image_url:
+        img_val = validate_image_url(req.image_url)
+        if not img_val.passed:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Image URL validation failed: {'; '.join(img_val.failures)}",
+            )
 
     # Detect duplicate: check exact duplicate at same time or near-duplicate within 7 days
     recent = await get_recent_posts_in_window(db, ws_uuid, days=7, reference_time=sched)
@@ -173,3 +191,17 @@ async def cancel_schedule(
     post.status = "cancelled"
     await db.commit()
     return None
+
+
+@router.get("/recommend-times")
+async def get_recommended_times(
+    workspace_id: str = Query(...),
+    n_slots: int = Query(3, ge=1, le=10),
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """Phase 7: Return evidence-based posting times or configurable hypothesis slots."""
+    ws_uuid = uuid.UUID(workspace_id)
+    await _check_workspace_member(db, current_user, ws_uuid)
+    return await recommend_posting_times(db, ws_uuid, n_slots=n_slots)
+

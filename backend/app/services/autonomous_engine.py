@@ -27,6 +27,8 @@ from ..services.content_uniqueness import (
     pick_distinct_format_and_angle,
 )
 from ..services.trend_research import conduct_workspace_research
+from ..services.adaptive_scheduler import get_best_hour_for_day
+from ..services.publish_validator import validate_post_for_publishing
 from ..settings import settings
 
 log = logging.getLogger(__name__)
@@ -131,14 +133,20 @@ class AutonomousEngine:
         start_quiet: int,
         end_quiet: int,
         strategy_hour: int = 14,
+        scheduling_basis: str = "hypothesis",
     ) -> datetime:
-        """Compute an optimal posting time slot that strictly avoids quiet hours."""
-        # Candidate hours spaced throughout daytime: e.g. 10:00, 14:00, 18:00
+        """Compute an optimal posting time slot that strictly avoids quiet hours.
+
+        Args:
+            strategy_hour: Primary UTC hour to use (may be evidence-based or hypothesis).
+            scheduling_basis: 'live_data_verified' | 'hypothesis' — recorded in audit log.
+        """
+        # Candidate hours spaced throughout daytime: lead with evidence-based hour
         candidate_hours = [strategy_hour, 10, 18, 12, 16]
         hour = candidate_hours[post_index_for_day % len(candidate_hours)]
 
         slot = target_date.replace(hour=hour, minute=0, second=0, microsecond=0)
-        
+
         # If falls in quiet hours, shift into safe morning window
         if self.is_in_quiet_hours(slot, start_quiet, end_quiet):
             safe_hour = (end_quiet + 1) % 24
@@ -440,11 +448,15 @@ class AutonomousEngine:
 
             # If below minimum, plan up to min_posts_per_day
             while count < cfg.min_posts_per_day:
+                # Phase 7: use evidence-based hour when sufficient live data exists
+                hour_rec = await get_best_hour_for_day(db, workspace_id, post_index=count)
                 slot_time = self.compute_adaptive_slot(
                     target_date,
                     post_index_for_day=count,
                     start_quiet=cfg.quiet_hours_start,
                     end_quiet=cfg.quiet_hours_end,
+                    strategy_hour=hour_rec["hour_utc"],
+                    scheduling_basis=hour_rec["data_basis"],
                 )
 
                 # Pick distinct topic from verified trends or defaults
@@ -516,6 +528,14 @@ class AutonomousEngine:
                     prefer_ai=False,
                 )
                 media_url = image_res["url"]
+                
+                # Phase 8: Pre-publish validation check
+                pre_pub_validation = await validate_post_for_publishing(
+                    caption=full_caption,
+                    image_url=media_url,
+                    is_mock=settings.USE_MOCK,
+                    check_reachability=False,
+                )
                 media_validation = self.validate_media(media_url, caption=full_caption)
 
                 # Content policy screening
@@ -523,7 +543,7 @@ class AutonomousEngine:
                 requires_approval = False
                 post_status = "scheduled"
 
-                if not screening["passed"] or cfg.approval_mode == "manual":
+                if not screening["passed"] or cfg.approval_mode == "manual" or not pre_pub_validation.passed:
                     requires_approval = True
                     post_status = "pending_approval"
 
@@ -543,12 +563,12 @@ class AutonomousEngine:
                 new_posts.append(post)
                 existing_captions.append(full_caption)
 
-                # Audit log creation with content provenance
+                # Audit log creation with content provenance & scheduling basis
                 audit = AutomationAuditLog(
                     workspace_id=workspace_id,
                     action="plan_generation",
                     status="success" if not requires_approval else "pending_review",
-                    summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status}, source={content_source}, format={format_info['format']})",
+                    summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status}, source={content_source}, format={format_info['format']}, basis={hour_rec['data_basis']})",
                     details={
                         "concept": concept,
                         "hook_type": format_info["hook_style"],
@@ -556,9 +576,12 @@ class AutonomousEngine:
                         "requires_approval": requires_approval,
                         "flagged_terms": screening.get("flagged_terms", []),
                         "scheduled_time": slot_time.isoformat(),
+                        "scheduling_basis": hour_rec["data_basis"],
                         "is_ai_generated": is_ai_generated,
                         "source": content_source,
                         "media_valid": media_validation["valid"],
+                        "pre_publish_valid": pre_pub_validation.passed,
+                        "validation_failures": pre_pub_validation.failures,
                     },
                     created_at=now,
                 )

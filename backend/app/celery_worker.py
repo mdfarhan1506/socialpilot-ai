@@ -187,6 +187,44 @@ async def _publish_due_posts_async() -> None:
                 log.info("Post %s already published – skipping", post.id)
                 continue
 
+            # Phase 8: Pre-publish validation check before calling publisher
+            from .services.publish_validator import validate_post_for_publishing
+            is_mock_mode = settings.USE_MOCK or settings.MOCK_INSTAGRAM or not (settings.META_APP_ID and settings.META_APP_SECRET)
+            validation_res = await validate_post_for_publishing(
+                caption=post.caption,
+                image_url=post.image_url,
+                is_mock=is_mock_mode,
+                check_reachability=not is_mock_mode,
+            )
+            if not validation_res.passed:
+                val_error = f"Pre-publish validation failed: {'; '.join(validation_res.failures)}"
+                log.warning("Post %s failed pre-publish validation: %s", post.id, val_error)
+                post.status = "failed"
+                published = PublishedPost(
+                    scheduled_post_id=post.id,
+                    platform_post_id=None,
+                    published_at=datetime.utcnow(),
+                    status="failed",
+                    error_message=val_error,
+                )
+                db.add(published)
+                if post.workspace_id:
+                    audit = AutomationAuditLog(
+                        workspace_id=post.workspace_id,
+                        action="publish",
+                        status="failed",
+                        summary=f"Post {post.id} aborted before publishing: {val_error}",
+                        details={
+                            "post_id": str(post.id),
+                            "validation_failures": validation_res.failures,
+                            "is_mock": is_mock_mode,
+                        },
+                        created_at=datetime.utcnow(),
+                    )
+                    db.add(audit)
+                await db.commit()
+                continue
+
             log.info("Publishing post %s (caption: %.40s)", post.id, post.caption or "")
             pub_status = "success"
             pub_error = None
