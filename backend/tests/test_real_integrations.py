@@ -70,8 +70,11 @@ class TestMetaRealIntegrations(unittest.TestCase):
         """Verify celery worker handles due posts, avoids duplicates, and retries on failure."""
         import asyncio
         from backend.app.celery_worker import _publish_due_posts_async
+        from backend.app.db import engine, Base
 
         async def _run():
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
             # Execution without error on clean DB
             await _publish_due_posts_async()
 

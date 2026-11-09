@@ -88,7 +88,7 @@ jobs:
           SYNC_DATABASE_URL: "sqlite:///./ci_migration_test.db"
           DATABASE_URL: "sqlite+aiosqlite:///./ci_migration_test.db"
         run: |
-          cd backend && alembic -c ../alembic.ini upgrade head
+          alembic -c alembic.ini upgrade head
           echo "✅ All migrations applied successfully"
 
       - name: Verify tables via Python
