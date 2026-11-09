@@ -28,8 +28,9 @@ class ContentGenerateRequest(BaseModel):
 
 class ContentGenerateResponse(BaseModel):
     ideas: list
-    source: str  # "openai" | "mock"
+    source: str           # "openai" | "mock"
     mock_mode: bool
+    ai_error: Optional[str] = None   # Non-null when real AI failed; explains why mock was used
 
 
 class ImageGenerateRequest(BaseModel):
@@ -53,16 +54,25 @@ async def generate_content(
     req: ContentGenerateRequest,
     current_user: models.User = Depends(deps.get_current_user),
 ):
-    """Generate content ideas. Uses real OpenAI when USE_MOCK=false and key is set."""
+    """Generate content ideas.
+
+    Uses real OpenAI when USE_MOCK=false and OPENAI_API_KEY is set.
+    If the real provider fails (quota exhausted, auth error, network error) the
+    response includes ai_error explaining what failed so the frontend can show a
+    clear message rather than silently presenting mock content as real AI output.
+    """
     prompt = (
-        f"Generate 3 Instagram post ideas for a {req.niche} brand targeting "
+        f"Generate 3 distinct Instagram post ideas for a {req.niche} brand targeting "
         f"{req.target_audience}. Tone: {req.tone}. Goal: {req.goal}. "
+        f"Make each idea genuinely different in angle, format, and hook. "
         f"Return a JSON object with key 'ideas', each idea having 'title' and 'caption'."
     )
     if req.extra_context:
         prompt += f" Additional context: {req.extra_context}"
 
     provider = get_ai_provider()
+    ai_error: Optional[str] = None
+
     try:
         result = await provider.generate(
             prompt,
@@ -73,15 +83,28 @@ async def generate_content(
             goal=req.goal,
         )
     except RuntimeError as exc:
+        err_msg = str(exc)
+        # Distinguish between quota/billing errors and other failures
+        if "rate limit" in err_msg.lower() or "429" in err_msg or "quota" in err_msg.lower() or "credits" in err_msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"OpenAI quota exhausted: {err_msg}. Add credits at platform.openai.com to enable real AI generation.",
+            )
+        if "authentication" in err_msg.lower() or "api key" in err_msg.lower() or "401" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"OpenAI authentication failed: {err_msg}. Verify OPENAI_API_KEY in environment.",
+            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            detail=err_msg,
         )
 
     return ContentGenerateResponse(
         ideas=result.get("ideas", []),
         source=result.get("source", "unknown"),
         mock_mode=settings.USE_MOCK,
+        ai_error=ai_error,
     )
 
 

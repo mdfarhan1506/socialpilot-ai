@@ -36,7 +36,9 @@ export default function ContentStudioView({
   const [extraContext, setExtraContext] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedIdeas, setGeneratedIdeas] = useState<ContentIdea[]>([]);
-  const [generationSource, setGenerationSource] = useState<string>('mock');
+  // null = no generation yet; set after first successful call
+  const [generationSource, setGenerationSource] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Post Editor state
   const [platform, setPlatform] = useState('instagram');
@@ -83,6 +85,7 @@ export default function ContentStudioView({
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
     setIsGenerating(true);
+    setAiError(null);
     try {
       const res = await api.generateContent({
         niche,
@@ -99,7 +102,16 @@ export default function ContentStudioView({
         'success'
       );
     } catch (err: any) {
-      onToast(err.message || 'Content generation failed', 'error');
+      const msg: string = err.message || 'Content generation failed';
+      // Surface quota / billing errors clearly instead of showing mock content silently
+      if (msg.includes('402') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('credits') || msg.toLowerCase().includes('rate limit')) {
+        const reason = 'OpenAI account has no credits. Add credits at platform.openai.com to generate real AI content.';
+        setAiError(reason);
+        onToast(reason, 'error');
+      } else {
+        setAiError(msg);
+        onToast(msg, 'error');
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -357,11 +369,45 @@ export default function ContentStudioView({
               </button>
             </form>
 
+            {/* AI Error banner — shown when real AI is unavailable */}
+            {aiError && (
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.85rem 1rem',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  fontSize: '0.82rem',
+                  color: 'var(--danger)',
+                }}
+              >
+                ⚠️ <strong>AI unavailable:</strong> {aiError}
+              </div>
+            )}
+
             {/* Generated Ideas Result */}
             {generatedIdeas.length > 0 && (
               <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600 }}>AI Suggested Ideas ({generationSource})</h4>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                    AI Suggested Ideas
+                    {generationSource && (
+                      <span
+                        style={{
+                          marginLeft: '0.5rem',
+                          fontSize: '0.72rem',
+                          fontWeight: 500,
+                          padding: '0.15rem 0.4rem',
+                          borderRadius: '4px',
+                          background: generationSource === 'openai' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)',
+                          color: generationSource === 'openai' ? 'var(--success)' : '#d97706',
+                        }}
+                      >
+                        {generationSource === 'openai' ? '✓ OpenAI' : '⚠ Mock AI'}
+                      </span>
+                    )}
+                  </h4>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Click to apply</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

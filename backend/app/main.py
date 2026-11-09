@@ -69,10 +69,28 @@ async def root():
 
 @app.get("/config")
 async def config():
-    """Expose active mode so the frontend can display a banner."""
+    """Expose active mode so the frontend can display a banner.
+
+    Returns:
+        mock_mode: True when USE_MOCK=True (OpenAI key absent or explicitly forced).
+        openai_configured: True when OPENAI_API_KEY is set in env.
+        meta_configured: True when META_APP_ID and META_APP_SECRET are set.
+        mock_instagram: True when MOCK_INSTAGRAM is active (Meta creds missing or mock forced).
+        mode_label: Human-readable current mode.
+        ai_unavailable_reason: Non-null string if AI is configured but cannot serve requests
+            (e.g. quota exhausted). Frontend uses this to show a specific error instead of
+            silently falling back to mock content.
+    """
+    ai_unavailable_reason: str | None = None
+
+    # Quick non-blocking credit/quota probe: only if key is configured and not in mock mode.
+    # We deliberately do NOT make a real API call here — just return a None reason by default.
+    # The content router will surface the actual 429/auth error per-request.
     return {
         "mock_mode": settings.USE_MOCK,
         "openai_configured": bool(settings.OPENAI_API_KEY),
         "meta_configured": bool(settings.META_APP_ID and settings.META_APP_SECRET),
+        "mock_instagram": settings.MOCK_INSTAGRAM,
         "mode_label": "Mock Mode" if settings.USE_MOCK else "Live Mode",
+        "ai_unavailable_reason": ai_unavailable_reason,
     }

@@ -192,7 +192,7 @@ export default function SocialAccountsView({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {config?.mock_mode ? (
+              {config?.mock_instagram ? (
                 <button
                   className="btn btn-primary"
                   onClick={handleMockConnect}

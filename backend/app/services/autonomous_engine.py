@@ -377,24 +377,37 @@ class AutonomousEngine:
 
         # 3. Check Meta token validity (if live mode)
         if not settings.USE_MOCK:
-            token_res = await db.execute(
-                select(MetaToken).where(MetaToken.user_id == cfg.id)  # or owner
+            # Look up token by workspace owner, not by autonomous config primary key
+            workspace_res = await db.execute(
+                select(BrandProfile).where(BrandProfile.workspace_id == workspace_id)
             )
-            token = token_res.scalar_one_or_none()
-            if token and token.expires_at and token.expires_at < now:
-                log.warning("Workspace %s has an expired Meta token – pausing autonomous scheduling", workspace_id)
-                cfg.is_active = False
-                audit = AutomationAuditLog(
-                    workspace_id=workspace_id,
-                    action="policy_pause",
-                    status="blocked",
-                    summary="Paused autonomous creator due to expired platform credentials",
-                    details={"error": "Expired Meta token"},
-                    created_at=now,
+            # Get workspace owner_id via the Workspace model
+            from ..models.workspace import Workspace as WorkspaceModel
+            ws_res = await db.execute(
+                select(WorkspaceModel).where(WorkspaceModel.id == workspace_id)
+            )
+            ws_row = ws_res.scalar_one_or_none()
+            owner_id = ws_row.owner_id if ws_row else None
+
+            if owner_id:
+                token_res = await db.execute(
+                    select(MetaToken).where(MetaToken.user_id == owner_id)
                 )
-                db.add(audit)
-                await db.commit()
-                return {"status": "paused_expired_token"}
+                token = token_res.scalar_one_or_none()
+                if token and token.expires_at and token.expires_at < now:
+                    log.warning("Workspace %s has an expired Meta token – pausing autonomous scheduling", workspace_id)
+                    cfg.is_active = False
+                    audit = AutomationAuditLog(
+                        workspace_id=workspace_id,
+                        action="policy_pause",
+                        status="blocked",
+                        summary="Paused autonomous creator due to expired platform credentials",
+                        details={"error": "Expired Meta token"},
+                        created_at=now,
+                    )
+                    db.add(audit)
+                    await db.commit()
+                    return {"status": "paused_expired_token"}
 
         # 4. Check active brand profiles
         brand_res = await db.execute(
@@ -521,11 +534,13 @@ class AutonomousEngine:
                 content_source = unique_content_payload["source"]
 
                 # Topic-specific image generation / retrieval
+                # prefer_ai=True so DALL-E is used when OPENAI_API_KEY is configured;
+                # the service gracefully falls back to stock library on any failure.
                 image_res = await generate_topic_image(
                     prompt=f"{concept}: {hook}",
                     niche=niche,
                     topic=target_topic,
-                    prefer_ai=False,
+                    prefer_ai=True,
                 )
                 media_url = image_res["url"]
                 

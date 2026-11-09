@@ -76,7 +76,9 @@ export interface AppConfig {
   mock_mode: boolean;
   openai_configured: boolean;
   meta_configured: boolean;
+  mock_instagram: boolean;
   mode_label: string;
+  ai_unavailable_reason?: string | null;
 }
 
 export interface MetaStatus {

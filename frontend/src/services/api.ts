@@ -191,7 +191,7 @@ export const api = {
     platform?: string;
     goal?: string;
     extra_context?: string;
-  }): Promise<{ ideas: ContentIdea[]; source: string; mock_mode: boolean }> {
+  }): Promise<{ ideas: ContentIdea[]; source: string; mock_mode: boolean; ai_error?: string | null }> {
     const res = await apiFetch(`${API_BASE}/content/generate`, {
       method: 'POST',
       headers: {
@@ -200,7 +200,7 @@ export const api = {
       },
       body: JSON.stringify(data),
     });
-    return handleResponse<{ ideas: ContentIdea[]; source: string; mock_mode: boolean }>(res);
+    return handleResponse<{ ideas: ContentIdea[]; source: string; mock_mode: boolean; ai_error?: string | null }>(res);
   },
 
   async generateImage(data: {
