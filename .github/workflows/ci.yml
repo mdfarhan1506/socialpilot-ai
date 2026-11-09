@@ -1,0 +1,108 @@
+name: CI — Backend Tests & Frontend Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHONPATH: .
+  DATABASE_URL: "sqlite+aiosqlite:///./test_dev.db"
+  SYNC_DATABASE_URL: "sqlite:///./test_dev.db"
+  USE_MOCK: "true"
+  MOCK_INSTAGRAM: "true"
+  SECRET_KEY: "ci-test-secret"
+
+jobs:
+  backend-tests:
+    name: Backend Tests (Python 3.13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run full test suite
+        run: pytest backend/tests/ -v --tb=short --junitxml=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: test-results.xml
+
+  frontend-build:
+    name: Frontend Production Build (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build production frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify build artifacts
+        working-directory: frontend
+        run: |
+          test -d .next && echo "✅ Next.js production build artifacts successfully generated"
+
+  db-migration-check:
+    name: Database Migration Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run Alembic migrations against clean SQLite
+        env:
+          SYNC_DATABASE_URL: "sqlite:///./ci_migration_test.db"
+          DATABASE_URL: "sqlite+aiosqlite:///./ci_migration_test.db"
+        run: |
+          cd backend && alembic -c ../alembic.ini upgrade head
+          echo "✅ All migrations applied successfully"
+
+      - name: Verify tables via Python
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///./ci_migration_test.db"
+        run: |
+          python3 -c "
+          import sqlite3
+          conn = sqlite3.connect('ci_migration_test.db')
+          tables = [r[0] for r in conn.execute(\"SELECT name FROM sqlite_master WHERE type='table'\").fetchall()]
+          print(f'Tables created: {tables}')
+          required = ['users', 'workspaces', 'scheduled_posts', 'published_posts', 'brand_profiles']
+          missing = [t for t in required if t not in tables]
+          if missing:
+              raise SystemExit(f'Missing tables: {missing}')
+          print('✅ All required tables present')
+          "
