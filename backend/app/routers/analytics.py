@@ -1,6 +1,7 @@
 """Analytics router – basic performance metrics.
 
 GET /analytics/?workspace_id=... – aggregated metrics for a workspace.
+POST /analytics/collect?workspace_id=... – manually trigger observation ingestion.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from ..models.comment import Comment
 from ..models.content import ScheduledPost
 from ..models.meta_token import MetaToken
 from ..services.meta_insights import meta_insights
+from ..services.learning_engine import learning_engine
 from ..utils.security import decrypt_token
 from ..settings import settings
 
@@ -165,4 +167,93 @@ async def workspace_analytics(
         "note": note,
         "instagram_connected": bool(token_row),
         "instagram_live_data": instagram_live_data,
+    }
+
+
+@router.post("/collect")
+async def collect_analytics(
+    workspace_id: str = Query(...),
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """Manually trigger analytics observation ingestion for a workspace.
+
+    Fetches real Instagram Insights when credentials and permissions are available.
+    In mock mode, stores clearly-labelled simulated observations.
+    Idempotent: already-observed posts are skipped automatically.
+
+    Returns:
+        Count of new observations recorded, data provenance, and any warnings.
+    """
+    ws_uuid = uuid.UUID(workspace_id)
+    ws = await _check_workspace_member(db, current_user, ws_uuid)
+
+    is_mock = settings.USE_MOCK
+
+    # Verify Meta token availability when in live mode
+    warnings: list[str] = []
+    if not is_mock:
+        token_res = await db.execute(
+            select(MetaToken).where(
+                (MetaToken.user_id == current_user.id) | (MetaToken.user_id == ws.owner_id)
+            ).order_by(MetaToken.updated_at.desc())
+        )
+        token_row = token_res.scalars().first()
+        if not token_row:
+            return {
+                "status": "error",
+                "message": "No Instagram account connected. Connect a Meta/Instagram account to collect real analytics.",
+                "observations_collected": 0,
+                "data_provenance": "none",
+            }
+        # Check token permissions
+        try:
+            raw_token = decrypt_token(token_row.encrypted_token)
+            account_data = await meta_insights.fetch_account_insights(
+                ig_user_id=token_row.ig_user_id or "",
+                access_token=raw_token,
+            )
+            if not account_data.get("success"):
+                return {
+                    "status": "error",
+                    "message": account_data.get("error", "Instagram account insights unavailable."),
+                    "observations_collected": 0,
+                    "data_provenance": "none",
+                }
+            required_perms = {"instagram_basic", "instagram_manage_insights"}
+            granted = set(account_data.get("granted_permissions", []))
+            missing = required_perms - granted
+            if missing:
+                warnings.append(
+                    f"Missing Instagram permissions: {', '.join(missing)}. "
+                    "Post-level insights may be unavailable."
+                )
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": f"Failed to verify Instagram permissions: {exc}",
+                "observations_collected": 0,
+                "data_provenance": "none",
+            }
+
+    new_observations = await learning_engine.ingest_post_observations(
+        db, ws_uuid, is_mock=is_mock
+    )
+    strategy_insights = await learning_engine.update_strategy_insights(
+        db, ws_uuid, is_mock=is_mock
+    )
+
+    provenance = "mock_simulation" if is_mock else "live_meta_api"
+    return {
+        "status": "success",
+        "observations_collected": len(new_observations),
+        "strategy_insights_updated": len(strategy_insights),
+        "data_provenance": provenance,
+        "mock_mode": is_mock,
+        "warnings": warnings,
+        "note": (
+            "[MOCK] Simulated observations stored. Real metrics require a connected Instagram Professional account."
+            if is_mock
+            else "Live Instagram Insights collected and stored."
+        ),
     }

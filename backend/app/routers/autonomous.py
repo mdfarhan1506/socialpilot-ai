@@ -16,7 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import deps, models
 from ..models.autonomous import AutonomousConfig, StrategyInsight, AutomationAuditLog
 from ..models.content import ScheduledPost
+from ..models.research import ResearchRun, TrendOpportunity
+from ..models.brand import BrandProfile
 from ..services.autonomous_engine import autonomous_engine
+from ..services.trend_research import conduct_workspace_research
 
 router = APIRouter()
 
@@ -292,3 +295,62 @@ async def approve_post(
     db.add(audit)
     await db.commit()
     return {"status": "approved", "post_id": str(post.id)}
+
+
+@router.post("/trends/research")
+async def trigger_trend_research(
+    workspace_id: str = Query(...),
+    niche: Optional[str] = Query(None),
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """Trigger verified trend research for the workspace niche using real accessible sources."""
+    ws_uuid = uuid.UUID(workspace_id)
+    await _check_workspace_member(db, current_user, ws_uuid)
+
+    target_niche = niche
+    if not target_niche:
+        brand_res = await db.execute(
+            select(BrandProfile).where(BrandProfile.workspace_id == ws_uuid)
+        )
+        brand = brand_res.scalars().first()
+        target_niche = brand.niche if brand else "Tech"
+
+    result = await conduct_workspace_research(db, ws_uuid, target_niche)
+    return result
+
+
+@router.get("/trends")
+async def list_trends(
+    workspace_id: str = Query(...),
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_user),
+):
+    """List recent verified trends and evergreen fallback topics for the workspace."""
+    ws_uuid = uuid.UUID(workspace_id)
+    await _check_workspace_member(db, current_user, ws_uuid)
+
+    res = await db.execute(
+        select(TrendOpportunity)
+        .join(ResearchRun, TrendOpportunity.research_run_id == ResearchRun.id)
+        .where(ResearchRun.workspace_id == ws_uuid)
+        .order_by(desc(TrendOpportunity.created_at))
+        .limit(limit)
+    )
+    opps = res.scalars().all()
+    return [
+        {
+            "id": str(o.id),
+            "title": o.title,
+            "description": o.description,
+            "evidence_url": o.evidence_url,
+            "source_name": o.source_name,
+            "publication_date": o.publication_date.isoformat() if o.publication_date else None,
+            "retrieved_at": o.retrieved_at.isoformat() if o.retrieved_at else None,
+            "is_evergreen": o.is_evergreen,
+            "relevance_score": o.relevance_score,
+            "trend_metadata": o.trend_metadata,
+        }
+        for o in opps
+    ]

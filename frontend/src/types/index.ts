@@ -153,3 +153,17 @@ export interface GeneratedImageResult {
   fallback_reason?: string | null;
 }
 
+export interface TrendOpportunityItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  evidence_url?: string | null;
+  source_name?: string | null;
+  publication_date?: string | null;
+  retrieved_at?: string | null;
+  is_evergreen: boolean;
+  relevance_score?: string | null;
+  trend_metadata?: Record<string, any>;
+}
+
+

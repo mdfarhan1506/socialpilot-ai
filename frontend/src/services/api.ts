@@ -13,6 +13,7 @@ import {
   AutomationAuditLog,
   AutonomousPlanPost,
   GeneratedImageResult,
+  TrendOpportunityItem,
 } from '../types';
 
 function getApiBase(): string {

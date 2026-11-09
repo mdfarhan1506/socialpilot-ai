@@ -26,6 +26,7 @@ from ..services.content_uniqueness import (
     get_recent_posts_in_window,
     pick_distinct_format_and_angle,
 )
+from ..services.trend_research import conduct_workspace_research
 from ..settings import settings
 
 log = logging.getLogger(__name__)
@@ -322,12 +323,15 @@ class AutonomousEngine:
     ) -> Dict[str, Any]:
         """Execute one complete autonomous creator cycle for a workspace:
         
-        1. Ingest analytics observations for published posts.
+        1. Ingest analytics observations for published posts (idempotent – skips already-observed posts).
         2. Formulate learning hypotheses & strategy updates.
         3. Check policy & pause state.
         4. Maintain rolling 3-day content plan with platform-ready posts.
         5. Screen sensitive content & enforce approval queues.
         6. Log full cycle decisions to audit trail.
+
+        Safe to retry: the duplicate-observation guard and existing-post check
+        ensure reruns produce no duplicate schedules or observations.
         """
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         cfg = await self.get_or_create_config(db, workspace_id)
@@ -339,7 +343,10 @@ class AutonomousEngine:
         insights = await learning_engine.update_strategy_insights(
             db, workspace_id, is_mock=settings.USE_MOCK
         )
-        strategy = await learning_engine.get_active_strategy(db, workspace_id)
+        # Use live strategy only when not in mock mode; mock strategy is informational only
+        strategy = await learning_engine.get_active_strategy(
+            db, workspace_id, require_live=not settings.USE_MOCK
+        )
 
         # 2. Check if workspace automation is paused
         if not cfg.is_active:
@@ -392,7 +399,20 @@ class AutonomousEngine:
         audience = active_brand.target_audience if active_brand else "Marketers & Founders"
         tone = active_brand.tone if active_brand else "informative & inspiring"
 
-        # 5. Maintain rolling content plan across rolling 7 days (checking existing history for duplicates)
+        # 5. Conduct real trend research for niche
+        research_res = await conduct_workspace_research(db, workspace_id, niche)
+        trend_topics = [t["title"] for t in research_res.get("trends", [])]
+        available_topics = trend_topics or cfg.target_topics or [
+            "Industry Trends",
+            "Practical Tips",
+            "Operating Frameworks",
+            "Common Mistakes",
+            "Case Studies",
+            "Tool Recommendations",
+            "Strategic Predictions",
+        ]
+
+        # 6. Maintain rolling content plan across rolling 7 days (checking existing history for duplicates)
         new_posts: List[ScheduledPost] = []
         recommended_hook = strategy.get("recommended_hook_type", "statistic")
 
@@ -427,16 +447,7 @@ class AutonomousEngine:
                     end_quiet=cfg.quiet_hours_end,
                 )
 
-                # Pick distinct topic from target_topics or defaults
-                available_topics = cfg.target_topics or [
-                    "Industry Trends",
-                    "Practical Tips",
-                    "Operating Frameworks",
-                    "Common Mistakes",
-                    "Case Studies",
-                    "Tool Recommendations",
-                    "Strategic Predictions",
-                ]
+                # Pick distinct topic from verified trends or defaults
                 target_topic = available_topics[(day_offset + count) % len(available_topics)]
                 format_info = pick_distinct_format_and_angle(day_offset, count)
 

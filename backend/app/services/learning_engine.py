@@ -47,6 +47,13 @@ class LearningEngine:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
 
         for pub_post, sched_post in rows:
+            # Skip if we already have an observation for this scheduled post (prevents duplicate collection)
+            existing_obs_res = await db.execute(
+                select(PostAnalyticsObservation.id).where(PostAnalyticsObservation.scheduled_post_id == sched_post.id)
+            )
+            if existing_obs_res.scalar_one_or_none() is not None:
+                continue
+
             # Calculate post age in hours
             pub_time = pub_post.published_at or sched_post.scheduled_time or now
             post_age_hours = max(0.1, (now - pub_time).total_seconds() / 3600.0)
@@ -297,28 +304,71 @@ class LearningEngine:
         self,
         db: AsyncSession,
         workspace_id: uuid.UUID,
+        require_live: bool = False,
     ) -> Dict[str, Any]:
-        """Fetch the latest active strategy recommendations for content generation."""
-        res = await db.execute(
+        """Fetch the latest active strategy recommendations for content generation.
+
+        Args:
+            require_live: When True, only return recommendations derived from real
+                Meta Insights data (data_provenance == 'live_meta_api').  If no
+                qualifying insights exist yet, returns safe defaults with a
+                ``data_status`` note explaining that live data is still accumulating.
+                This prevents mock-derived hypotheses from influencing live production.
+        """
+        query = (
             select(StrategyInsight)
             .where(StrategyInsight.workspace_id == workspace_id)
             .order_by(desc(StrategyInsight.created_at))
-            .limit(5)
         )
+        if require_live:
+            query = query.where(StrategyInsight.is_mock == False)  # noqa: E712
+
+        query = query.limit(5)
+        res = await db.execute(query)
         insights = res.scalars().all()
+
+        # Minimum live observations threshold: do not act on live strategy until
+        # at least MIN_LIVE_SAMPLES real posts have been observed.
+        MIN_LIVE_SAMPLES = 5
+        has_enough_live_data = False
 
         recommended_hook = "statistic"
         best_time_slot = "14:00 UTC"
+        data_status = "awaiting_live_data" if require_live else "mock_or_default"
+
         if insights:
             for item in insights:
-                if item.hook_type:
-                    recommended_hook = item.hook_type
-                    best_time_slot = item.best_time_slot or best_time_slot
-                    break
+                # For live strategy, verify the underlying evidence has enough samples.
+                if require_live:
+                    evidence = item.evidence_data or {}
+                    samples = evidence.get("samples", 0)
+                    if samples >= MIN_LIVE_SAMPLES and item.hook_type:
+                        recommended_hook = item.hook_type
+                        best_time_slot = item.best_time_slot or best_time_slot
+                        has_enough_live_data = True
+                        data_status = "live_data_verified"
+                        break
+                else:
+                    if item.hook_type:
+                        recommended_hook = item.hook_type
+                        best_time_slot = item.best_time_slot or best_time_slot
+                        data_status = "mock_simulation"
+                        break
+
+        if require_live and not has_enough_live_data:
+            data_status = "awaiting_live_data"
+            log.info(
+                "Workspace %s has insufficient live observations for strategy adaptation "
+                "(need %d samples). Using default hook type.",
+                workspace_id,
+                MIN_LIVE_SAMPLES,
+            )
 
         return {
             "recommended_hook_type": recommended_hook,
             "recommended_time_slot": best_time_slot,
+            "data_status": data_status,
+            "has_enough_live_data": has_enough_live_data,
             "insights": [
                 {
                     "topic": i.topic,
