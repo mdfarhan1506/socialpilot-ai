@@ -15,55 +15,94 @@ from ..settings import settings
 
 logger = logging.getLogger("socialpilot.image_service")
 
-# Curated, topic-specific verified high-resolution images for key niches
-# All URLs are direct HTTPS images suitable for Instagram feed (1:1 or 4:5 aspect ratio)
+# Curated, topic-specific verified high-resolution images for key niches.
+# Each category has at least 6 distinct URLs to minimise hash collisions when
+# multiple topics in the same niche are requested in the same session.
+# All URLs are direct HTTPS images suitable for Instagram feed (1:1 or 4:5).
 NICHE_STOCK_LIBRARY: Dict[str, list[str]] = {
     "tech": [
         "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1555949963-aa79dcee981c?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1573164713988-8665fc963095?w=1080&auto=format&fit=crop&q=80",
     ],
     "fitness": [
         "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1476480862126-209bfaa8edc8?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1538805060514-97d9cc17730c?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1549060279-7e168fcee0c2?w=1080&auto=format&fit=crop&q=80",
     ],
     "business": [
         "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1556761175-4b46a572b786?w=1080&auto=format&fit=crop&q=80",
     ],
     "food": [
         "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=1080&auto=format&fit=crop&q=80",
     ],
     "travel": [
         "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1530789253388-582c481c54b0?w=1080&auto=format&fit=crop&q=80",
     ],
     "fashion": [
         "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1445205170230-053b83016050?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1080&auto=format&fit=crop&q=80",
     ],
     "finance": [
         "https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1543699565-003b8adda5fc?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1565514020179-026b92b2d70b?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1619944671609-56263f0a3e09?w=1080&auto=format&fit=crop&q=80",
     ],
     "marketing": [
         "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1432888498266-38ffec3eaf0a?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1533750349088-cd871a92f312?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1504868584819-f8e8b4b6d7e3?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1557838923-2985c318be48?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1562577309-4932fdd64cd1?w=1080&auto=format&fit=crop&q=80",
     ],
     "default": [
         "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1080&auto=format&fit=crop&q=80",
         "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1557682250-33bd709cbe85?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1558591710-4b4a1ae0f964?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1534796636912-3b95b3ab5986?w=1080&auto=format&fit=crop&q=80",
+        "https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=1080&auto=format&fit=crop&q=80",
     ],
 }
 
 
 def get_stock_image_for_topic(niche: str, topic: Optional[str] = None) -> Dict[str, Any]:
-    """Select a relevant topic-specific stock image from the curated library."""
+    """Select a relevant topic-specific stock image from the curated library.
+
+    Uses a PYTHONHASHSEED-independent hash (sum of ordinal values) so the same
+    niche+topic always resolves to the same image regardless of Python run, while
+    different topics spread across the full candidate list to minimise collisions.
+    """
     search_text = f"{niche} {topic or ''}".lower()
     matched_category = "default"
     for cat in NICHE_STOCK_LIBRARY.keys():
@@ -72,8 +111,10 @@ def get_stock_image_for_topic(niche: str, topic: Optional[str] = None) -> Dict[s
             break
 
     candidates = NICHE_STOCK_LIBRARY.get(matched_category, NICHE_STOCK_LIBRARY["default"])
-    # Pick deterministically or by simple hash of prompt for consistency
-    idx = abs(hash(search_text)) % len(candidates)
+    # Stable hash: sum of Unicode ordinals — not affected by PYTHONHASHSEED.
+    # This guarantees identical behaviour locally, in CI, and in production.
+    stable_hash = sum(ord(c) for c in search_text)
+    idx = stable_hash % len(candidates)
     image_url = candidates[idx]
 
     return {

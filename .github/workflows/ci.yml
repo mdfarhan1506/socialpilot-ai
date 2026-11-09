@@ -31,6 +31,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
 
+      - name: Initialise test database schema
+        run: |
+          python3 scripts/init_test_db.py
+
       - name: Run full test suite
         run: pytest backend/tests/ -v --tb=short --junitxml=test-results.xml
 

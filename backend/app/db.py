@@ -67,11 +67,6 @@ AsyncSessionLocal = sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
 )
 
-# Delete stale test-only SQLite files (never touch dev.db)
-if database_url.startswith("sqlite+aiosqlite://"):
-    db_path = database_url.split("///")[-1]
-    if db_path != "./dev.db" and not db_path.endswith("/dev.db") and os.path.isfile(db_path):
-        os.remove(db_path)
 
 # ---------------------------------------------------------------------------
 # Lazy table creation — runs once per cold start via get_db() or startup event
