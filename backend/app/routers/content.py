@@ -70,10 +70,10 @@ async def generate_content(
     if req.extra_context:
         prompt += f" Additional context: {req.extra_context}"
 
-    provider = get_ai_provider()
     ai_error: Optional[str] = None
 
     try:
+        provider = get_ai_provider()
         result = await provider.generate(
             prompt,
             niche=req.niche,
@@ -84,20 +84,35 @@ async def generate_content(
         )
     except RuntimeError as exc:
         err_msg = str(exc)
+        # ai_not_configured: missing OPENAI_API_KEY outside of mock mode
+        if "ai_not_configured" in err_msg:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "ai_not_configured",
+                    "message": "OPENAI_API_KEY is not configured on this server. Add the key to the environment to enable AI generation.",
+                },
+            )
         # Distinguish between quota/billing errors and other failures
         if "rate limit" in err_msg.lower() or "429" in err_msg or "quota" in err_msg.lower() or "credits" in err_msg.lower():
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"OpenAI quota exhausted: {err_msg}. Add credits at platform.openai.com to enable real AI generation.",
+                detail={
+                    "code": "ai_quota_exceeded",
+                    "message": f"OpenAI quota exhausted. Add credits at platform.openai.com to enable real AI generation.",
+                },
             )
         if "authentication" in err_msg.lower() or "api key" in err_msg.lower() or "401" in err_msg:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"OpenAI authentication failed: {err_msg}. Verify OPENAI_API_KEY in environment.",
+                detail={
+                    "code": "ai_auth_failed",
+                    "message": f"OpenAI authentication failed. Verify OPENAI_API_KEY in environment.",
+                },
             )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=err_msg,
+            detail={"code": "ai_upstream_error", "message": err_msg},
         )
 
     return ContentGenerateResponse(

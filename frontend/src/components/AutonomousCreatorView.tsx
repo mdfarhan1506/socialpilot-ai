@@ -177,8 +177,12 @@ export default function AutonomousCreatorView({
             >
               {autoConfig?.is_active ? '● Running Continuously' : '⏸️ Automation Paused'}
             </span>
-            <span className={`mode-badge ${config?.mock_mode ? 'mock' : 'live'}`}>
-              {config?.mock_mode ? 'Simulated Execution [MOCK]' : 'Live Execution [META/OPENAI]'}
+            <span className={`mode-badge ${config?.mock_mode ? 'mock' : (config?.openai_configured ? 'live' : 'mock')}`}>
+              {config?.mock_mode
+                ? 'Simulated Execution [MOCK]'
+                : config?.openai_configured
+                  ? 'Live Execution [META/OPENAI]'
+                  : 'Setup Incomplete — AI not configured'}
             </span>
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.35rem' }}>
@@ -225,7 +229,7 @@ export default function AutonomousCreatorView({
               <h3 className="card-title" style={{ margin: 0 }}>Active Strategy & Learned Hypotheses</h3>
             </div>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Data Provenance: {config?.mock_mode ? 'Simulated' : 'Verified Live'}
+              Data Provenance: {config?.mock_mode ? 'Simulated' : (config?.openai_configured ? 'Live (OpenAI configured)' : 'No live data yet — AI not configured')}
             </span>
           </div>
 

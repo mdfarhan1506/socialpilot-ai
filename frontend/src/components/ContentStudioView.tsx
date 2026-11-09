@@ -102,16 +102,28 @@ export default function ContentStudioView({
         'success'
       );
     } catch (err: any) {
-      const msg: string = err.message || 'Content generation failed';
-      // Surface quota / billing errors clearly instead of showing mock content silently
-      if (msg.includes('402') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('credits') || msg.toLowerCase().includes('rate limit')) {
-        const reason = 'OpenAI account has no credits. Add credits at platform.openai.com to generate real AI content.';
-        setAiError(reason);
-        onToast(reason, 'error');
+      const rawMsg: string = err.message || 'Content generation failed';
+      // err.message is now "STATUS:CODE:MESSAGE" for structured backend errors
+      // e.g. "503:ai_not_configured:OPENAI_API_KEY is not set..."
+      //      "402:ai_quota_exceeded:OpenAI quota exhausted..."
+      //      "401:ai_auth_failed:OpenAI authentication failed..."
+      const parts = rawMsg.split(':');
+      const httpStatus = err.status || parseInt(parts[0]) || 0;
+      const errorCode = err.code || (parts.length >= 3 ? parts[1] : '');
+      const humanMsg = parts.length >= 3 ? parts.slice(2).join(':') : rawMsg;
+
+      let displayError: string;
+      if (httpStatus === 503 || errorCode === 'ai_not_configured') {
+        displayError = 'AI is not configured on this server. Set OPENAI_API_KEY in the backend environment.';
+      } else if (httpStatus === 402 || errorCode === 'ai_quota_exceeded') {
+        displayError = 'OpenAI account has no credits. Add credits at platform.openai.com to generate real AI content.';
+      } else if (httpStatus === 401 || errorCode === 'ai_auth_failed') {
+        displayError = 'OpenAI API key is invalid. Verify OPENAI_API_KEY in the backend environment.';
       } else {
-        setAiError(msg);
-        onToast(msg, 'error');
+        displayError = humanMsg;
       }
+      setAiError(displayError);
+      onToast(displayError, 'error');
     } finally {
       setIsGenerating(false);
     }

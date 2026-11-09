@@ -57,13 +57,26 @@ async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<R
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMsg = `Request failed: ${res.status}`;
+    let errorCode: string | undefined;
     try {
       const err = await res.json();
-      errorMsg = err.detail || JSON.stringify(err);
+      const detail = err.detail;
+      if (detail && typeof detail === 'object' && detail.message) {
+        // Structured error: { code, message }
+        errorCode = detail.code;
+        errorMsg = `${res.status}:${detail.code}:${detail.message}`;
+      } else if (typeof detail === 'string') {
+        errorMsg = detail;
+      } else if (detail) {
+        errorMsg = JSON.stringify(detail);
+      }
     } catch {
       // fallback
     }
-    throw new Error(errorMsg);
+    const error = new Error(errorMsg) as Error & { status: number; code?: string };
+    error.status = res.status;
+    error.code = errorCode;
+    throw error;
   }
   if (res.status === 204) {
     return {} as T;

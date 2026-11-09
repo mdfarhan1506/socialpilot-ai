@@ -26,9 +26,11 @@ class MockAIProvider(AIProvider):
         ideas: List[Dict[str, str]] = []
         for i in range(3):
             title = f"[MOCK] {self._random_phrase(niche)} #{i+1}"
+            # caption must NOT re-wrap title (which already has [MOCK]); doing so
+            # creates the double "[MOCK] [MOCK]" that was visible in the dashboard.
             caption = (
-                f"[MOCK] {title} – A {tone} post for {audience} on {platform} "
-                f"to {goal}."
+                f"[MOCK] A {tone} post for {audience} on {platform} "
+                f"to {goal}. ({niche} – idea {i+1})"
             )
             ideas.append({"title": title, "caption": caption})
         return {"ideas": ideas, "source": "mock"}
