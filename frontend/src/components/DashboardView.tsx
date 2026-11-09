@@ -122,7 +122,7 @@ export default function DashboardView({
               {analytics?.instagram_connected && !config?.mock_mode ? 'Account Reach (24h)' : 'Estimated Reach'}
             </div>
             <div className="stat-value" style={{ fontSize: '1.3rem' }}>
-              {analytics?.estimated_reach != null && analytics.estimated_reach !== '' && analytics.estimated_reach !== 0
+              {analytics?.estimated_reach != null && analytics.estimated_reach !== '' && analytics.estimated_reach !== '0'
                 ? analytics.estimated_reach
                 : 'No data yet'}
             </div>

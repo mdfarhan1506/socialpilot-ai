@@ -421,190 +421,214 @@ class AutonomousEngine:
         tone = active_brand.tone if active_brand else "informative & inspiring"
 
         # 5. Conduct real trend research for niche
-        research_res = await conduct_workspace_research(db, workspace_id, niche)
-        trend_topics = [t["title"] for t in research_res.get("trends", [])]
-        available_topics = trend_topics or cfg.target_topics or [
-            "Industry Trends",
-            "Practical Tips",
-            "Operating Frameworks",
-            "Common Mistakes",
-            "Case Studies",
-            "Tool Recommendations",
-            "Strategic Predictions",
-        ]
+        current_stage = "trend_research"
+        try:
+            research_res = await conduct_workspace_research(db, workspace_id, niche)
+            trend_topics = [t["title"] for t in research_res.get("trends", [])]
+            available_topics = trend_topics or cfg.target_topics or [
+                "Industry Trends",
+                "Practical Tips",
+                "Operating Frameworks",
+                "Common Mistakes",
+                "Case Studies",
+                "Tool Recommendations",
+                "Strategic Predictions",
+            ]
 
-        # 6. Maintain rolling content plan across rolling 7 days (checking existing history for duplicates)
-        new_posts: List[ScheduledPost] = []
-        recommended_hook = strategy.get("recommended_hook_type", "statistic")
+            # 6. Maintain rolling content plan across rolling 7 days (checking existing history for duplicates)
+            new_posts: List[ScheduledPost] = []
+            recommended_hook = strategy.get("recommended_hook_type", "statistic")
 
-        # Load recent 7-day post window to prevent duplicates or topic repeats
-        recent_posts = await get_recent_posts_in_window(db, workspace_id, days=7, reference_time=now)
-        existing_captions = [p["caption"] for p in recent_posts if p.get("caption")]
+            # Load recent 7-day post window to prevent duplicates or topic repeats
+            recent_posts = await get_recent_posts_in_window(db, workspace_id, days=7, reference_time=now)
+            existing_captions = [p["caption"] for p in recent_posts if p.get("caption")]
 
-        for day_offset in range(1, 8):
-            target_date = now + timedelta(days=day_offset)
-            start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
+            current_stage = "planning_and_content_generation"
+            for day_offset in range(1, 8):
+                target_date = now + timedelta(days=day_offset)
+                start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
 
-            # Check existing posts on this day
-            existing_count_res = await db.execute(
-                select(func.count())
-                .select_from(ScheduledPost)
-                .where(
-                    ScheduledPost.workspace_id == workspace_id,
-                    ScheduledPost.scheduled_time >= start_of_day,
-                    ScheduledPost.scheduled_time <= end_of_day,
-                    ScheduledPost.status.in_(["scheduled", "pending_approval", "published"]),
+                # Check existing posts on this day
+                existing_count_res = await db.execute(
+                    select(func.count())
+                    .select_from(ScheduledPost)
+                    .where(
+                        ScheduledPost.workspace_id == workspace_id,
+                        ScheduledPost.scheduled_time >= start_of_day,
+                        ScheduledPost.scheduled_time <= end_of_day,
+                        ScheduledPost.status.in_(["scheduled", "pending_approval", "published"]),
+                    )
                 )
-            )
-            count = existing_count_res.scalar() or 0
+                count = existing_count_res.scalar() or 0
 
-            # If below minimum, plan up to min_posts_per_day
-            while count < cfg.min_posts_per_day:
-                # Phase 7: use evidence-based hour when sufficient live data exists
-                hour_rec = await get_best_hour_for_day(db, workspace_id, post_index=count)
-                slot_time = self.compute_adaptive_slot(
-                    target_date,
-                    post_index_for_day=count,
-                    start_quiet=cfg.quiet_hours_start,
-                    end_quiet=cfg.quiet_hours_end,
-                    strategy_hour=hour_rec["hour_utc"],
-                    scheduling_basis=hour_rec["data_basis"],
-                )
+                # If below minimum, plan up to min_posts_per_day
+                while count < cfg.min_posts_per_day:
+                    # Phase 7: use evidence-based hour when sufficient live data exists
+                    hour_rec = await get_best_hour_for_day(db, workspace_id, post_index=count)
+                    slot_time = self.compute_adaptive_slot(
+                        target_date,
+                        post_index_for_day=count,
+                        start_quiet=cfg.quiet_hours_start,
+                        end_quiet=cfg.quiet_hours_end,
+                        strategy_hour=hour_rec["hour_utc"],
+                        scheduling_basis=hour_rec["data_basis"],
+                    )
 
-                # Pick distinct topic from verified trends or defaults
-                target_topic = available_topics[(day_offset + count) % len(available_topics)]
-                format_info = pick_distinct_format_and_angle(day_offset, count)
+                    # Pick distinct topic from verified trends or defaults
+                    target_topic = available_topics[(day_offset + count) % len(available_topics)]
+                    format_info = pick_distinct_format_and_angle(day_offset, count)
 
-                # Uniqueness Retry Loop: Attempt up to 3 times to generate a distinct caption
-                max_retries = 3
-                unique_content_payload: Optional[Dict[str, Any]] = None
+                    # Uniqueness Retry Loop: Attempt up to 3 times to generate a distinct caption
+                    max_retries = 3
+                    unique_content_payload: Optional[Dict[str, Any]] = None
 
-                for attempt in range(1, max_retries + 1):
-                    content_payload = await self.generate_platform_content(
+                    for attempt in range(1, max_retries + 1):
+                        content_payload = await self.generate_platform_content(
+                            niche=niche,
+                            audience=audience,
+                            tone=tone,
+                            target_topic=target_topic,
+                            recommended_hook=format_info["hook_style"],
+                            day_offset=day_offset,
+                            format_info=format_info,
+                            attempt=attempt,
+                        )
+                        candidate_caption = content_payload["caption"]
+                        is_dup, matched_text, sim = is_duplicate_or_near_duplicate(
+                            candidate_caption, existing_captions, threshold=0.75
+                        )
+                        if not is_dup:
+                            unique_content_payload = content_payload
+                            break
+                        log.warning(
+                            "Duplicate/near-duplicate detected on day %d (attempt %d, similarity=%.2f): %s",
+                            day_offset,
+                            attempt,
+                            sim,
+                            matched_text,
+                        )
+
+                    if not unique_content_payload:
+                        log.error(
+                            "Uniqueness retry exhausted for workspace %s on day %d. Skipping duplicate.",
+                            workspace_id,
+                            day_offset,
+                        )
+                        audit = AutomationAuditLog(
+                            workspace_id=workspace_id,
+                            action="plan_generation_skipped",
+                            status="exhausted_retries",
+                            summary=f"Skipped scheduling duplicate for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} after {max_retries} attempts",
+                            details={"topic": target_topic, "day_offset": day_offset},
+                            created_at=now,
+                        )
+                        db.add(audit)
+                        count += 1
+                        continue
+
+                    concept = unique_content_payload["concept"]
+                    hook = unique_content_payload["hook"]
+                    script_body = unique_content_payload["script_or_body"]
+                    cta = unique_content_payload["call_to_action"]
+                    hashtags = unique_content_payload["hashtags"]
+                    full_caption = unique_content_payload["caption"]
+                    is_ai_generated = unique_content_payload["is_ai_generated"]
+                    content_source = unique_content_payload["source"]
+
+                    # Topic-specific image generation / retrieval
+                    # prefer_ai=True so DALL-E is used when OPENAI_API_KEY is configured;
+                    # the service gracefully falls back to stock library on any failure.
+                    image_res = await generate_topic_image(
+                        prompt=f"{concept}: {hook}",
                         niche=niche,
-                        audience=audience,
-                        tone=tone,
-                        target_topic=target_topic,
-                        recommended_hook=format_info["hook_style"],
-                        day_offset=day_offset,
-                        format_info=format_info,
-                        attempt=attempt,
+                        topic=target_topic,
+                        prefer_ai=True,
                     )
-                    candidate_caption = content_payload["caption"]
-                    is_dup, matched_text, sim = is_duplicate_or_near_duplicate(
-                        candidate_caption, existing_captions, threshold=0.75
+                    media_url = image_res["url"]
+                    
+                    # Phase 8: Pre-publish validation check
+                    pre_pub_validation = await validate_post_for_publishing(
+                        caption=full_caption,
+                        image_url=media_url,
+                        is_mock=settings.USE_MOCK,
+                        check_reachability=False,
                     )
-                    if not is_dup:
-                        unique_content_payload = content_payload
-                        break
-                    log.warning(
-                        "Duplicate/near-duplicate detected on day %d (attempt %d, similarity=%.2f): %s",
-                        day_offset,
-                        attempt,
-                        sim,
-                        matched_text,
-                    )
+                    media_validation = self.validate_media(media_url, caption=full_caption)
 
-                if not unique_content_payload:
-                    log.error(
-                        "Uniqueness retry exhausted for workspace %s on day %d. Skipping duplicate.",
-                        workspace_id,
-                        day_offset,
+                    # Content policy screening
+                    screening = self.screen_content_policy(full_caption, cfg.restricted_keywords)
+                    requires_approval = False
+                    post_status = "scheduled"
+
+                    if not screening["passed"] or cfg.approval_mode == "manual" or not pre_pub_validation.passed:
+                        requires_approval = True
+                        post_status = "pending_approval"
+
+                    post = ScheduledPost(
+                        workspace_id=workspace_id,
+                        concept=concept,
+                        hook=hook,
+                        script_or_body=script_body,
+                        call_to_action=cta,
+                        caption=full_caption,
+                        image_url=media_url if media_validation["valid"] else None,
+                        scheduled_time=slot_time,
+                        status=post_status,
+                        requires_approval=requires_approval,
                     )
+                    db.add(post)
+                    new_posts.append(post)
+                    existing_captions.append(full_caption)
+
+                    # Audit log creation with content provenance & scheduling basis
                     audit = AutomationAuditLog(
                         workspace_id=workspace_id,
-                        action="plan_generation_skipped",
-                        status="exhausted_retries",
-                        summary=f"Skipped scheduling duplicate for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} after {max_retries} attempts",
-                        details={"topic": target_topic, "day_offset": day_offset},
+                        action="plan_generation",
+                        status="success" if not requires_approval else "pending_review",
+                        summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status}, source={content_source}, format={format_info['format']}, basis={hour_rec['data_basis']})",
+                        details={
+                            "concept": concept,
+                            "hook_type": format_info["hook_style"],
+                            "format": format_info["format"],
+                            "requires_approval": requires_approval,
+                            "flagged_terms": screening.get("flagged_terms", []),
+                            "scheduled_time": slot_time.isoformat(),
+                            "scheduling_basis": hour_rec["data_basis"],
+                            "is_ai_generated": is_ai_generated,
+                            "source": content_source,
+                            "media_valid": media_validation["valid"],
+                            "pre_publish_valid": pre_pub_validation.passed,
+                            "validation_failures": pre_pub_validation.failures,
+                        },
                         created_at=now,
                     )
                     db.add(audit)
+
                     count += 1
-                    continue
 
-                concept = unique_content_payload["concept"]
-                hook = unique_content_payload["hook"]
-                script_body = unique_content_payload["script_or_body"]
-                cta = unique_content_payload["call_to_action"]
-                hashtags = unique_content_payload["hashtags"]
-                full_caption = unique_content_payload["caption"]
-                is_ai_generated = unique_content_payload["is_ai_generated"]
-                content_source = unique_content_payload["source"]
-
-                # Topic-specific image generation / retrieval
-                # prefer_ai=True so DALL-E is used when OPENAI_API_KEY is configured;
-                # the service gracefully falls back to stock library on any failure.
-                image_res = await generate_topic_image(
-                    prompt=f"{concept}: {hook}",
-                    niche=niche,
-                    topic=target_topic,
-                    prefer_ai=True,
-                )
-                media_url = image_res["url"]
-                
-                # Phase 8: Pre-publish validation check
-                pre_pub_validation = await validate_post_for_publishing(
-                    caption=full_caption,
-                    image_url=media_url,
-                    is_mock=settings.USE_MOCK,
-                    check_reachability=False,
-                )
-                media_validation = self.validate_media(media_url, caption=full_caption)
-
-                # Content policy screening
-                screening = self.screen_content_policy(full_caption, cfg.restricted_keywords)
-                requires_approval = False
-                post_status = "scheduled"
-
-                if not screening["passed"] or cfg.approval_mode == "manual" or not pre_pub_validation.passed:
-                    requires_approval = True
-                    post_status = "pending_approval"
-
-                post = ScheduledPost(
-                    workspace_id=workspace_id,
-                    concept=concept,
-                    hook=hook,
-                    script_or_body=script_body,
-                    call_to_action=cta,
-                    caption=full_caption,
-                    image_url=media_url if media_validation["valid"] else None,
-                    scheduled_time=slot_time,
-                    status=post_status,
-                    requires_approval=requires_approval,
-                )
-                db.add(post)
-                new_posts.append(post)
-                existing_captions.append(full_caption)
-
-                # Audit log creation with content provenance & scheduling basis
-                audit = AutomationAuditLog(
-                    workspace_id=workspace_id,
-                    action="plan_generation",
-                    status="success" if not requires_approval else "pending_review",
-                    summary=f"Planned post for {slot_time.strftime('%Y-%m-%d %H:%M UTC')} ({post_status}, source={content_source}, format={format_info['format']}, basis={hour_rec['data_basis']})",
-                    details={
-                        "concept": concept,
-                        "hook_type": format_info["hook_style"],
-                        "format": format_info["format"],
-                        "requires_approval": requires_approval,
-                        "flagged_terms": screening.get("flagged_terms", []),
-                        "scheduled_time": slot_time.isoformat(),
-                        "scheduling_basis": hour_rec["data_basis"],
-                        "is_ai_generated": is_ai_generated,
-                        "source": content_source,
-                        "media_valid": media_validation["valid"],
-                        "pre_publish_valid": pre_pub_validation.passed,
-                        "validation_failures": pre_pub_validation.failures,
-                    },
-                    created_at=now,
-                )
-                db.add(audit)
-
-                count += 1
-
-        await db.commit()
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            log.exception("Autonomous cycle failed at stage '%s': %s", current_stage, e)
+            fail_audit = AutomationAuditLog(
+                workspace_id=workspace_id,
+                action="autonomous_cycle",
+                status="failed",
+                summary=f"Cycle failed during stage '{current_stage}': {str(e)}",
+                details={"stage": current_stage, "error": str(e)},
+                created_at=now,
+            )
+            db.add(fail_audit)
+            await db.commit()
+            return {
+                "status": "failed",
+                "stage": current_stage,
+                "error": str(e),
+                "observations_ingested": len(observations),
+                "strategy_insights": len(insights),
+                "new_posts_planned": 0,
+            }
 
         # Audit overall cycle
         final_audit = AutomationAuditLog(
