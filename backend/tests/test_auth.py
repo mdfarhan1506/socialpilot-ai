@@ -1,11 +1,14 @@
 """Tests for authentication endpoints."""
+import uuid
 import unittest
 from backend.tests.conftest import client
 
 
 class TestAuthRegister(unittest.TestCase):
     def test_register_new_user(self):
-        resp = client.post("/auth/register", json={"email": "auth_new@test.com", "password": "secure123"})
+        # Use a unique email per test run so this test is safe to run on an existing DB.
+        unique_email = f"auth_new_{uuid.uuid4().hex[:8]}@test.com"
+        resp = client.post("/auth/register", json={"email": unique_email, "password": "secure123"})
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertIn("access_token", resp.json())
 

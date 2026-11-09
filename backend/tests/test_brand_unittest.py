@@ -7,14 +7,25 @@ client = TestClient(app)
 class TestBrandCRUD(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Register a user
-        resp = client.post("/auth/register", json={"email": "brand@test.com", "password": "test1234"})
-        assert resp.status_code == 200
-        cls.token = resp.json()["access_token"]
+        # Register a user — tolerate 400 if the email is already taken (re-run on existing DB)
+        email = "brand@test.com"
+        password = "test1234"
+        reg_resp = client.post("/auth/register", json={"email": email, "password": password})
+        assert reg_resp.status_code in (200, 400), f"Register failed: {reg_resp.text}"
+
+        # Login to get a valid token regardless of whether registration succeeded
+        login_resp = client.post(
+            "/auth/login",
+            data={"username": email, "password": password},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
+        cls.token = login_resp.json()["access_token"]
         cls.headers = {"Authorization": f"Bearer {cls.token}"}
+
         # Create a workspace
         resp = client.post("/workspace/", json={"name": "Test Workspace"}, headers=cls.headers)
-        assert resp.status_code == 200
+        assert resp.status_code == 200, f"Workspace creation failed: {resp.text}"
         cls.workspace_id = resp.json()["id"]
 
     def test_create_and_get_brand(self):
