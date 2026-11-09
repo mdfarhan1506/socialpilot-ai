@@ -38,6 +38,7 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [isDemo, setIsDemo] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
 
   // Workspaces
@@ -322,46 +323,30 @@ export default function Home() {
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
-        onTabChange={setCurrentTab}
+        onTabChange={(tab) => {
+          setCurrentTab(tab);
+          setMobileMenuOpen(false);
+        }}
         currentUser={currentUser}
         onLogout={handleLogout}
+        isOpenMobile={mobileMenuOpen}
+        onCloseMobile={() => setMobileMenuOpen(false)}
       />
 
       {/* Main Content Area */}
       <div className="main-wrapper">
         {/* Persistent Demo Mode Banner */}
         {isDemo && (
-          <div
-            style={{
-              backgroundColor: 'rgba(245, 158, 11, 0.15)',
-              borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
-              color: '#d97706',
-              padding: '0.6rem 1.25rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: '0.85rem',
-              fontWeight: 500,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '1rem' }}>⚠️</span>
+          <div className="demo-banner">
+            <div className="demo-banner-content">
+              <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>⚠️</span>
               <span>
                 <strong>DEMO MODE — You are viewing simulated data.</strong> Real publishing, live Meta API calls, and external credits are completely disabled.
               </span>
             </div>
             <button
               onClick={handleLogout}
-              style={{
-                background: 'rgba(245, 158, 11, 0.25)',
-                border: '1px solid rgba(245, 158, 11, 0.5)',
-                color: '#b45309',
-                padding: '0.25rem 0.65rem',
-                borderRadius: 'var(--radius-sm)',
-                fontWeight: 600,
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-              }}
+              className="demo-exit-btn"
             >
               Exit Demo
             </button>
@@ -375,6 +360,7 @@ export default function Home() {
           onOpenCreateWorkspace={() => setCreateWorkspaceModalOpen(true)}
           config={config}
           metaStatus={metaStatus}
+          onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
           onOpenNewPost={() => {
             setStudioInitialCaption('');
             setStudioInitialDate(undefined);

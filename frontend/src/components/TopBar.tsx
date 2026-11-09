@@ -11,6 +11,7 @@ interface TopBarProps {
   config: AppConfig | null;
   onOpenNewPost: () => void;
   metaStatus?: { connected?: boolean; is_expired?: boolean } | null;
+  onToggleMobileMenu?: () => void;
 }
 
 export default function TopBar({
@@ -21,6 +22,7 @@ export default function TopBar({
   config,
   onOpenNewPost,
   metaStatus,
+  onToggleMobileMenu,
 }: TopBarProps) {
   // LIVE MODE = openai_configured AND meta token valid AND NOT mock_mode
   const metaTokenValid = Boolean(metaStatus?.connected && !metaStatus?.is_expired);
@@ -33,6 +35,15 @@ export default function TopBar({
   return (
     <header className="top-bar">
       <div className="top-bar-left">
+        {onToggleMobileMenu && (
+          <button
+            className="hamburger-btn"
+            onClick={onToggleMobileMenu}
+            aria-label="Toggle Navigation Menu"
+          >
+            ☰
+          </button>
+        )}
         <div className="workspace-select-wrapper">
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Workspace:</span>
           {workspaces.length > 0 ? (
