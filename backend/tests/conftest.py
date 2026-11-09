@@ -6,9 +6,21 @@ os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test_dev.db")
 os.environ.setdefault("USE_MOCK", "true")
 
 from fastapi.testclient import TestClient  # noqa: E402
+import pytest                              # noqa: E402
+import asyncio                             # noqa: E402
 from backend.app.main import app           # noqa: E402
+from backend.app.db import engine, Base    # noqa: E402
 
 client = TestClient(app)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def init_test_db():
+    """Ensure all database tables exist before running any tests on clean DBs."""
+    async def _init():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    asyncio.run(_init())
 
 
 def get_auth_headers(email: str, password: str = "testpass123") -> dict:
