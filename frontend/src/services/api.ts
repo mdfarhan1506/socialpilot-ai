@@ -15,6 +15,7 @@ import {
   GeneratedImageResult,
   TrendOpportunityItem,
 } from '../types';
+import { isDemoMode, demoApi } from './demoService';
 
 function getApiBase(): string {
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -93,6 +94,7 @@ export const api = {
 
   // Auth
   async getMe(): Promise<User> {
+    if (isDemoMode()) return demoApi.getMe();
     const res = await apiFetch(`${API_BASE}/auth/me`, {
       headers: { ...getAuthHeader() },
     });
@@ -122,6 +124,7 @@ export const api = {
 
   // Workspaces
   async listWorkspaces(): Promise<Workspace[]> {
+    if (isDemoMode()) return demoApi.listWorkspaces();
     const res = await apiFetch(`${API_BASE}/workspace/`, {
       headers: { ...getAuthHeader() },
     });
@@ -129,6 +132,7 @@ export const api = {
   },
 
   async createWorkspace(name: string): Promise<Workspace> {
+    if (isDemoMode()) return demoApi.createWorkspace(name);
     const res = await apiFetch(`${API_BASE}/workspace/`, {
       method: 'POST',
       headers: {
@@ -142,6 +146,7 @@ export const api = {
 
   // Brands
   async listBrands(workspaceId: string): Promise<BrandProfile[]> {
+    if (isDemoMode()) return demoApi.listBrands(workspaceId);
     const res = await apiFetch(`${API_BASE}/brand/?workspace_id=${workspaceId}`, {
       headers: { ...getAuthHeader() },
     });
@@ -156,6 +161,7 @@ export const api = {
     brand_voice?: string;
     content_preferences?: string;
   }): Promise<BrandProfile> {
+    if (isDemoMode()) return demoApi.createBrand(data);
     const res = await apiFetch(`${API_BASE}/brand/`, {
       method: 'POST',
       headers: {
@@ -177,6 +183,7 @@ export const api = {
       content_preferences?: string;
     }
   ): Promise<BrandProfile> {
+    if (isDemoMode()) return demoApi.updateBrand(brandId, data);
     const res = await apiFetch(`${API_BASE}/brand/${brandId}`, {
       method: 'PUT',
       headers: {
@@ -189,6 +196,10 @@ export const api = {
   },
 
   async deleteBrand(brandId: string): Promise<void> {
+    if (isDemoMode()) {
+      await demoApi.deleteBrand(brandId);
+      return;
+    }
     const res = await apiFetch(`${API_BASE}/brand/${brandId}`, {
       method: 'DELETE',
       headers: { ...getAuthHeader() },
@@ -205,6 +216,7 @@ export const api = {
     goal?: string;
     extra_context?: string;
   }): Promise<{ ideas: ContentIdea[]; source: string; mock_mode: boolean; ai_error?: string | null }> {
+    if (isDemoMode()) return demoApi.generateContent(data);
     const res = await apiFetch(`${API_BASE}/content/generate`, {
       method: 'POST',
       headers: {
@@ -222,6 +234,7 @@ export const api = {
     topic?: string;
     prefer_ai?: boolean;
   }): Promise<GeneratedImageResult> {
+    if (isDemoMode()) return demoApi.generateImage(data);
     const res = await apiFetch(`${API_BASE}/content/generate-image`, {
       method: 'POST',
       headers: {
@@ -235,6 +248,7 @@ export const api = {
 
   // Scheduling
   async listSchedules(workspaceId: string): Promise<ScheduledPost[]> {
+    if (isDemoMode()) return demoApi.listSchedules(workspaceId);
     const res = await apiFetch(`${API_BASE}/schedule/?workspace_id=${workspaceId}`, {
       headers: { ...getAuthHeader() },
     });
@@ -247,6 +261,7 @@ export const api = {
     image_url?: string;
     scheduled_time: string;
   }): Promise<ScheduledPost> {
+    if (isDemoMode()) return demoApi.createSchedule(data);
     const res = await apiFetch(`${API_BASE}/schedule/`, {
       method: 'POST',
       headers: {
@@ -259,6 +274,10 @@ export const api = {
   },
 
   async cancelSchedule(scheduleId: string): Promise<void> {
+    if (isDemoMode()) {
+      await demoApi.cancelSchedule(scheduleId);
+      return;
+    }
     const res = await apiFetch(`${API_BASE}/schedule/${scheduleId}`, {
       method: 'DELETE',
       headers: { ...getAuthHeader() },
@@ -268,6 +287,7 @@ export const api = {
 
   // Meta Instagram
   async getMetaStatus(): Promise<MetaStatus> {
+    if (isDemoMode()) return demoApi.getMetaStatus();
     const res = await apiFetch(`${API_BASE}/meta/status`, {
       headers: { ...getAuthHeader() },
     });
@@ -297,6 +317,12 @@ export const api = {
   },
 
   async publishPost(data: { image_url: string; caption: string }): Promise<any> {
+    if (isDemoMode()) {
+      return {
+        success: true,
+        message: '[DEMO] Simulated post successfully marked as published. Live publishing is disabled in Demo Mode.',
+      };
+    }
     const res = await apiFetch(`${API_BASE}/meta/publish`, {
       method: 'POST',
       headers: {
@@ -310,6 +336,7 @@ export const api = {
 
   // Comments
   async listComments(workspaceId: string, postId?: string): Promise<CommentItem[]> {
+    if (isDemoMode()) return demoApi.listComments(workspaceId);
     let url = `${API_BASE}/comments/?workspace_id=${workspaceId}`;
     if (postId) url += `&post_id=${postId}`;
     const res = await apiFetch(url, {
@@ -324,6 +351,14 @@ export const api = {
     author?: string;
     text: string;
   }): Promise<CommentItem> {
+    if (isDemoMode()) {
+      return demoApi.createComment({
+        workspace_id: data.workspace_id,
+        post_id: data.post_id,
+        author: data.author || 'Demo Reviewer',
+        text: data.text,
+      });
+    }
     const res = await apiFetch(`${API_BASE}/comments/`, {
       method: 'POST',
       headers: {
@@ -337,6 +372,7 @@ export const api = {
 
   // Analytics
   async getAnalytics(workspaceId: string): Promise<AnalyticsData> {
+    if (isDemoMode()) return demoApi.getAnalytics(workspaceId);
     const res = await apiFetch(`${API_BASE}/analytics/?workspace_id=${workspaceId}`, {
       headers: { ...getAuthHeader() },
     });
@@ -345,6 +381,7 @@ export const api = {
 
   // Autonomous Creator
   async getAutonomousConfig(workspaceId: string): Promise<AutonomousConfig> {
+    if (isDemoMode()) return demoApi.getAutonomousConfig(workspaceId);
     const res = await apiFetch(`${API_BASE}/autonomous/config?workspace_id=${workspaceId}`, {
       headers: { ...getAuthHeader() },
     });
@@ -354,6 +391,7 @@ export const api = {
   async updateAutonomousConfig(
     data: Partial<AutonomousConfig> & { workspace_id: string }
   ): Promise<{ status: string; is_active: boolean }> {
+    if (isDemoMode()) return demoApi.updateAutonomousConfig(data);
     const res = await apiFetch(`${API_BASE}/autonomous/config`, {
       method: 'PUT',
       headers: {
@@ -366,6 +404,7 @@ export const api = {
   },
 
   async pauseAutonomous(workspaceId: string): Promise<{ status: string; is_active: boolean }> {
+    if (isDemoMode()) return demoApi.pauseAutonomous(workspaceId);
     const res = await apiFetch(`${API_BASE}/autonomous/pause?workspace_id=${workspaceId}`, {
       method: 'POST',
       headers: { ...getAuthHeader() },
@@ -374,6 +413,7 @@ export const api = {
   },
 
   async resumeAutonomous(workspaceId: string): Promise<{ status: string; is_active: boolean }> {
+    if (isDemoMode()) return demoApi.resumeAutonomous(workspaceId);
     const res = await apiFetch(`${API_BASE}/autonomous/resume?workspace_id=${workspaceId}`, {
       method: 'POST',
       headers: { ...getAuthHeader() },
@@ -382,6 +422,7 @@ export const api = {
   },
 
   async runAutonomousCycle(workspaceId: string): Promise<any> {
+    if (isDemoMode()) return demoApi.runAutonomousCycle(workspaceId);
     const res = await apiFetch(`${API_BASE}/autonomous/run-cycle?workspace_id=${workspaceId}`, {
       method: 'POST',
       headers: { ...getAuthHeader() },
@@ -390,6 +431,7 @@ export const api = {
   },
 
   async getAutonomousInsights(workspaceId: string): Promise<StrategyInsight[]> {
+    if (isDemoMode()) return demoApi.getAutonomousInsights(workspaceId);
     const res = await apiFetch(`${API_BASE}/autonomous/insights?workspace_id=${workspaceId}`, {
       headers: { ...getAuthHeader() },
     });
@@ -397,6 +439,7 @@ export const api = {
   },
 
   async getAutonomousAuditLogs(workspaceId: string): Promise<AutomationAuditLog[]> {
+    if (isDemoMode()) return demoApi.getAutonomousAuditLogs(workspaceId);
     const res = await apiFetch(`${API_BASE}/autonomous/audit-logs?workspace_id=${workspaceId}`, {
       headers: { ...getAuthHeader() },
     });
@@ -404,6 +447,7 @@ export const api = {
   },
 
   async getAutonomousPlan(workspaceId: string): Promise<AutonomousPlanPost[]> {
+    if (isDemoMode()) return demoApi.getAutonomousPlan(workspaceId);
     const res = await apiFetch(`${API_BASE}/autonomous/plan?workspace_id=${workspaceId}`, {
       headers: { ...getAuthHeader() },
     });
@@ -411,6 +455,7 @@ export const api = {
   },
 
   async approvePost(postId: string): Promise<{ status: string; post_id: string }> {
+    if (isDemoMode()) return demoApi.approvePost(postId);
     const res = await apiFetch(`${API_BASE}/autonomous/posts/${postId}/approve`, {
       method: 'POST',
       headers: { ...getAuthHeader() },

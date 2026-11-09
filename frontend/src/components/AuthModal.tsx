@@ -6,10 +6,11 @@ import { api } from '../services/api';
 interface AuthModalProps {
   isOpen: boolean;
   onSuccess: () => void;
+  onEnterDemo?: () => void;
   onToast: (msg: string, type: 'success' | 'error' | 'info') => void;
 }
 
-export default function AuthModal({ isOpen, onSuccess, onToast }: AuthModalProps) {
+export default function AuthModal({ isOpen, onSuccess, onEnterDemo, onToast }: AuthModalProps) {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -113,7 +114,39 @@ export default function AuthModal({ isOpen, onSuccess, onToast }: AuthModalProps
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.85rem' }}>
+        {/* Demo Mode Entry Option */}
+        {onEnterDemo && (
+          <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border-color)', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+              OR
+            </div>
+            <div style={{ marginBottom: '0.6rem' }}>
+              <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>Explore Demo Mode</strong>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
+                Preview the full dashboard with realistic sample data. No login or API keys needed.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{
+                width: '100%',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                fontWeight: 600,
+                borderColor: 'var(--accent-primary)',
+              }}
+              onClick={onEnterDemo}
+            >
+              <span>✨</span>
+              <span>Enter Demo Mode</span>
+            </button>
+          </div>
+        )}
+
+        <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.85rem' }}>
           <span style={{ color: 'var(--text-secondary)' }}>
             {isRegister ? 'Already have an account? ' : "Don't have an account yet? "}
           </span>

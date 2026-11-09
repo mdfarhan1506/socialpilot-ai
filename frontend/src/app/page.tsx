@@ -11,6 +11,7 @@ import {
   MetaStatus,
 } from '../types';
 import { api } from '../services/api';
+import { isDemoMode, setDemoMode } from '../services/demoService';
 import Sidebar from '../components/Sidebar';
 import TopBar from '../components/TopBar';
 import AuthModal from '../components/AuthModal';
@@ -36,6 +37,7 @@ export default function Home() {
   // Global App States
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [isDemo, setIsDemo] = useState(false);
   const [config, setConfig] = useState<AppConfig | null>(null);
 
   // Workspaces
@@ -68,6 +70,19 @@ export default function Home() {
   // Initial load: config and check saved session
   useEffect(() => {
     api.getConfig().then(setConfig).catch(() => setConfig(null));
+
+    if (isDemoMode()) {
+      setIsDemo(true);
+      setAuthModalOpen(false);
+      api
+        .getMe()
+        .then((user) => {
+          setCurrentUser(user);
+          loadWorkspaces();
+        })
+        .catch(() => null);
+      return;
+    }
 
     const token = localStorage.getItem('access_token');
     if (token) {
@@ -158,6 +173,8 @@ export default function Home() {
 
   // Sign out
   function handleLogout() {
+    setDemoMode(false);
+    setIsDemo(false);
     localStorage.removeItem('access_token');
     setCurrentUser(null);
     setCurrentWorkspace(null);
@@ -167,6 +184,21 @@ export default function Home() {
     setAnalytics(null);
     setAuthModalOpen(true);
     addToast('Logged out', 'info');
+  }
+
+  // Enter Demo Mode handler
+  function handleEnterDemo() {
+    setDemoMode(true);
+    setIsDemo(true);
+    setAuthModalOpen(false);
+    addToast('Entered Demo Mode with sample brand "Urban Threads". Simulated session active.', 'info');
+    api
+      .getMe()
+      .then((user) => {
+        setCurrentUser(user);
+        loadWorkspaces();
+      })
+      .catch((err) => addToast(err.message, 'error'));
   }
 
   // Create Workspace
@@ -226,6 +258,7 @@ export default function Home() {
       <AuthModal
         isOpen={authModalOpen}
         onSuccess={handleAuthSuccess}
+        onEnterDemo={handleEnterDemo}
         onToast={addToast}
       />
 
@@ -296,6 +329,45 @@ export default function Home() {
 
       {/* Main Content Area */}
       <div className="main-wrapper">
+        {/* Persistent Demo Mode Banner */}
+        {isDemo && (
+          <div
+            style={{
+              backgroundColor: 'rgba(245, 158, 11, 0.15)',
+              borderBottom: '1px solid rgba(245, 158, 11, 0.35)',
+              color: '#d97706',
+              padding: '0.6rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.85rem',
+              fontWeight: 500,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '1rem' }}>⚠️</span>
+              <span>
+                <strong>DEMO MODE — You are viewing simulated data.</strong> Real publishing, live Meta API calls, and external credits are completely disabled.
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              style={{
+                background: 'rgba(245, 158, 11, 0.25)',
+                border: '1px solid rgba(245, 158, 11, 0.5)',
+                color: '#b45309',
+                padding: '0.25rem 0.65rem',
+                borderRadius: 'var(--radius-sm)',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+              }}
+            >
+              Exit Demo
+            </button>
+          </div>
+        )}
+
         <TopBar
           workspaces={workspaces}
           currentWorkspace={currentWorkspace}
